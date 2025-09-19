@@ -1,0 +1,7 @@
+export { getSupabaseClient } from './supabase'
+export { useAuthService, authUtils } from './authService'
+export { useContact } from './contactService'
+export { useClinic, clinicUtils } from './clinicService'
+export type { SignUpData, SignInData, AuthResponse } from '@/types'
+export type { ContactMessage, ContactResponse } from './contactService'
+export type { ClinicResponse, ClinicsResponse } from './clinicService'

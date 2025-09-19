@@ -1,8 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# Sublease - Plataforma de Sublocação de Consultórios
+
+Este é um projeto [Next.js](https://nextjs.org) para uma plataforma de sublocação de consultórios médicos.
+
+## Configuração do Ambiente
+
+Antes de executar o projeto, você precisa configurar as variáveis de ambiente:
+
+1. Crie um arquivo `.env.local` na raiz do projeto
+2. Adicione as seguintes variáveis:
+
+```bash
+# Google Maps API Key (obrigatório para mapas interativos)
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=sua_chave_do_google_maps_aqui
+
+# Configuração do Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://nmxcqiwslkuvdydlsolm.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_1yVaOKJDGvInFb6z0m-eaA_NFPd0NwN
+
+# Service Role Key (para operações administrativas)
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0
+```
+
+### Como obter a chave do Google Maps:
+
+1. Acesse o [Google Cloud Console](https://console.cloud.google.com/)
+2. Crie um novo projeto ou selecione um existente
+3. Ative a API "Maps JavaScript API"
+4. Vá em "Credenciais" e crie uma chave de API
+5. Configure as restrições de domínio conforme necessário
 
 ## Getting Started
 
-First, run the development server:
+Primeiro, instale as dependências e execute o servidor de desenvolvimento:
 
 ```bash
 npm run dev
