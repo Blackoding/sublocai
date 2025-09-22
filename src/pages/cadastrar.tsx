@@ -4,17 +4,34 @@ import Link from 'next/link';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
 import Modal from '@/components/Modal';
+import UserTypeSelector from '@/components/UserTypeSelector';
+import Select from '@/components/Select';
+import { SPECIALTIES, getSpecialtyRegistrationCode } from '@/constants/specialties';
+import { isValidCPF, isValidCNPJ } from '@/lib/validation';
 
 const CadastrarPage = () => {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    nomeCompleto: '',
+    // Campos comuns
     email: '',
-    cpf: '',
     telefone: '',
     senha: '',
     confirmarSenha: '',
-    dataNascimento: ''
+    tipoUsuario: 'professional' as 'professional' | 'company' | null,
+    
+    // Campos específicos para profissional
+    nomeCompleto: '',
+    cpf: '',
+    dataNascimento: '',
+    especialidade: '',
+    crm: '',
+    
+    // Campos específicos para empresa
+    razaoSocial: '',
+    nomeFantasia: '',
+    cnpj: '',
+    responsavel: '',
+    cpfResponsavel: ''
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -24,13 +41,24 @@ const CadastrarPage = () => {
 
   // Refs para os campos do formulário
   const fieldRefs = {
-    nomeCompleto: useRef<HTMLInputElement>(null),
+    // Campos comuns
     email: useRef<HTMLInputElement>(null),
-    cpf: useRef<HTMLInputElement>(null),
     telefone: useRef<HTMLInputElement>(null),
     senha: useRef<HTMLInputElement>(null),
     confirmarSenha: useRef<HTMLInputElement>(null),
-    dataNascimento: useRef<HTMLInputElement>(null)
+    
+    // Campos específicos para profissional
+    nomeCompleto: useRef<HTMLInputElement>(null),
+    cpf: useRef<HTMLInputElement>(null),
+    dataNascimento: useRef<HTMLInputElement>(null),
+    crm: useRef<HTMLInputElement>(null),
+    
+    // Campos específicos para empresa
+    razaoSocial: useRef<HTMLInputElement>(null),
+    nomeFantasia: useRef<HTMLInputElement>(null),
+    cnpj: useRef<HTMLInputElement>(null),
+    responsavel: useRef<HTMLInputElement>(null),
+    cpfResponsavel: useRef<HTMLInputElement>(null)
   };
 
   // Clear errors when user starts typing
@@ -38,7 +66,43 @@ const CadastrarPage = () => {
     if (error) {
       setError(null);
     }
-  }, [formData.email, formData.nomeCompleto, formData.cpf, formData.telefone, formData.senha, formData.dataNascimento]);
+  }, [formData]);
+
+  // Função de validação de CPF para uso em tempo real
+  const validateCPF = (cpf: string): string | null => {
+    if (!cpf.trim()) {
+      return null; // Não mostra erro se estiver vazio (será validado no submit)
+    }
+    
+    const cpfNumbers = cpf.replace(/\D/g, '');
+    if (cpfNumbers.length < 11) {
+      return 'CPF deve ter 11 dígitos';
+    }
+    
+    if (!isValidCPF(cpf)) {
+      return 'CPF inválido';
+    }
+    
+    return null; // CPF válido
+  };
+
+  // Função de validação de CNPJ para uso em tempo real
+  const validateCNPJ = (cnpj: string): string | null => {
+    if (!cnpj.trim()) {
+      return null; // Não mostra erro se estiver vazio (será validado no submit)
+    }
+    
+    const cnpjNumbers = cnpj.replace(/\D/g, '');
+    if (cnpjNumbers.length < 14) {
+      return 'CNPJ deve ter 14 dígitos';
+    }
+    
+    if (!isValidCNPJ(cnpj)) {
+      return 'CNPJ inválido';
+    }
+    
+    return null; // CNPJ válido
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -56,31 +120,100 @@ const CadastrarPage = () => {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Validação do nome completo
-    if (!formData.nomeCompleto.trim()) {
-      newErrors.nomeCompleto = 'Nome completo é obrigatório';
-    } else if (formData.nomeCompleto.trim().length < 2) {
-      newErrors.nomeCompleto = 'Nome deve ter pelo menos 2 caracteres';
+    // Validação do tipo de usuário
+    if (!formData.tipoUsuario) {
+      newErrors.tipoUsuario = 'Selecione o tipo de conta';
     }
 
-    // Validação do email
+    // Validações específicas para profissional
+    if (formData.tipoUsuario === 'professional') {
+      // Nome completo
+      if (!formData.nomeCompleto.trim()) {
+        newErrors.nomeCompleto = 'Nome completo é obrigatório';
+      } else if (formData.nomeCompleto.trim().length < 2) {
+        newErrors.nomeCompleto = 'Nome deve ter pelo menos 2 caracteres';
+      }
+
+      // CPF
+      if (!formData.cpf.trim()) {
+        newErrors.cpf = 'CPF é obrigatório';
+      } else if (!isValidCPF(formData.cpf)) {
+        newErrors.cpf = 'CPF inválido';
+      }
+
+      // Data de nascimento
+      if (!formData.dataNascimento.trim()) {
+        newErrors.dataNascimento = 'Data de nascimento é obrigatória';
+      } else {
+        const birthDate = new Date(formData.dataNascimento);
+        const today = new Date();
+        const age = today.getFullYear() - birthDate.getFullYear();
+        if (age < 18) {
+          newErrors.dataNascimento = 'Você deve ter pelo menos 18 anos';
+        }
+      }
+
+      // Especialidade
+      if (!formData.especialidade.trim()) {
+        newErrors.especialidade = 'Especialidade é obrigatória';
+      }
+
+      // Código de registro (obrigatório apenas se especialidade for selecionada)
+      if (formData.especialidade && !formData.crm.trim()) {
+        const registrationCode = getSpecialtyRegistrationCode(formData.especialidade);
+        newErrors.crm = `${registrationCode} é obrigatório`;
+      } else if (formData.especialidade && formData.crm.trim().length < 4) {
+        const registrationCode = getSpecialtyRegistrationCode(formData.especialidade);
+        newErrors.crm = `${registrationCode} deve ter pelo menos 4 caracteres`;
+      }
+    }
+
+    // Validações específicas para empresa
+    if (formData.tipoUsuario === 'company') {
+      // Razão Social
+      if (!formData.razaoSocial.trim()) {
+        newErrors.razaoSocial = 'Razão social é obrigatória';
+      } else if (formData.razaoSocial.trim().length < 2) {
+        newErrors.razaoSocial = 'Razão social deve ter pelo menos 2 caracteres';
+      }
+
+      // Nome Fantasia
+      if (!formData.nomeFantasia.trim()) {
+        newErrors.nomeFantasia = 'Nome fantasia é obrigatório';
+      } else if (formData.nomeFantasia.trim().length < 2) {
+        newErrors.nomeFantasia = 'Nome fantasia deve ter pelo menos 2 caracteres';
+      }
+
+      // CNPJ
+      if (!formData.cnpj.trim()) {
+        newErrors.cnpj = 'CNPJ é obrigatório';
+      } else if (!isValidCNPJ(formData.cnpj)) {
+        newErrors.cnpj = 'CNPJ inválido';
+      }
+
+      // Responsável
+      if (!formData.responsavel.trim()) {
+        newErrors.responsavel = 'Nome do responsável é obrigatório';
+      } else if (formData.responsavel.trim().length < 2) {
+        newErrors.responsavel = 'Nome do responsável deve ter pelo menos 2 caracteres';
+      }
+
+      // CPF do Responsável
+      if (!formData.cpfResponsavel.trim()) {
+        newErrors.cpfResponsavel = 'CPF do responsável é obrigatório';
+      } else if (!isValidCPF(formData.cpfResponsavel)) {
+        newErrors.cpfResponsavel = 'CPF inválido';
+      }
+    }
+
+    // Validação do email (comum para ambos)
     if (!formData.email.trim()) {
       newErrors.email = 'Email é obrigatório';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Formato de email inválido';
     }
 
-    // Validação do CPF
-    if (!formData.cpf.trim()) {
-      newErrors.cpf = 'CPF é obrigatório';
-    } else {
-      const cpfNumbers = formData.cpf.replace(/\D/g, '');
-      if (cpfNumbers.length !== 11) {
-        newErrors.cpf = 'CPF deve ter 11 dígitos';
-      }
-    }
-
-    // Validação do telefone
+    // Validação do telefone (comum para ambos)
     if (!formData.telefone.trim()) {
       newErrors.telefone = 'Telefone é obrigatório';
     } else {
@@ -90,30 +223,18 @@ const CadastrarPage = () => {
       }
     }
 
-    // Validação da senha
+    // Validação da senha (comum para ambos)
     if (!formData.senha.trim()) {
       newErrors.senha = 'Senha é obrigatória';
     } else if (formData.senha.length < 6) {
       newErrors.senha = 'Senha deve ter pelo menos 6 caracteres';
     }
 
-    // Validação da confirmação de senha
+    // Validação da confirmação de senha (comum para ambos)
     if (!formData.confirmarSenha.trim()) {
       newErrors.confirmarSenha = 'Confirmação de senha é obrigatória';
     } else if (formData.senha !== formData.confirmarSenha) {
       newErrors.confirmarSenha = 'Senhas não coincidem';
-    }
-
-    // Validação da data de nascimento
-    if (!formData.dataNascimento.trim()) {
-      newErrors.dataNascimento = 'Data de nascimento é obrigatória';
-    } else {
-      const birthDate = new Date(formData.dataNascimento);
-      const today = new Date();
-      const age = today.getFullYear() - birthDate.getFullYear();
-      if (age < 18) {
-        newErrors.dataNascimento = 'Você deve ter pelo menos 18 anos';
-      }
     }
 
     setErrors(newErrors);
@@ -159,14 +280,28 @@ const CadastrarPage = () => {
       const { authUtils } = await import('@/services/authService');
       console.log('✅ authUtils importado com sucesso');
       
-      const { user, error: authError } = await authUtils.signUp({
-        fullName: formData.nomeCompleto,
+      // Preparar dados baseados no tipo de usuário
+      const signUpData = {
         email: formData.email,
-        cpf: formData.cpf,
         phone: formData.telefone,
         password: formData.senha,
-        birthDate: formData.dataNascimento
-      });
+        userType: formData.tipoUsuario as 'professional' | 'company',
+        ...(formData.tipoUsuario === 'professional' ? {
+          fullName: formData.nomeCompleto,
+          cpf: formData.cpf,
+          birthDate: formData.dataNascimento,
+          specialty: formData.especialidade,
+          registrationCode: formData.crm || undefined
+        } : {
+          companyName: formData.razaoSocial,
+          tradeName: formData.nomeFantasia,
+          cnpj: formData.cnpj,
+          responsibleName: formData.responsavel,
+          responsibleCpf: formData.cpfResponsavel
+        })
+      };
+
+      const { user, error: authError } = await authUtils.signUp(signUpData);
 
       console.log('📧 Resultado do signUp:', { user, authError });
 
@@ -214,20 +349,185 @@ const CadastrarPage = () => {
           <p className="text-gray-600">Preencha os dados abaixo para criar sua conta</p>
         </div>
 
+        {/* Seletor de Tipo de Usuário */}
+        <div className="bg-white rounded-3xl shadow-md p-8 mb-6">
+          <UserTypeSelector
+            selectedType={formData.tipoUsuario}
+            onTypeChange={(type) => handleInputChange('tipoUsuario', type)}
+            error={errors.tipoUsuario}
+          />
+        </div>
+
         {/* Formulário */}
         <div className="bg-white rounded-3xl shadow-md p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
-            <Input
-              ref={fieldRefs.nomeCompleto}
-              label="Nome completo"
-              value={formData.nomeCompleto}
-              onChange={(value) => handleInputChange('nomeCompleto', value)}
-              placeholder="Seu nome completo"
-              required
-            />
-            {errors.nomeCompleto && (
-              <p className="text-red-500 text-sm mt-1">{errors.nomeCompleto}</p>
+            {/* Campos específicos para Profissional */}
+            {formData.tipoUsuario === 'professional' && (
+              <>
+                {/* Seção de Dados Pessoais */}
+                <div className="border-b border-gray-200 pb-4 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Dados Pessoais</h3>
+                  <p className="text-sm text-gray-600">Suas informações pessoais</p>
+                </div>
+
+                <Input
+                  ref={fieldRefs.nomeCompleto}
+                  label="Nome completo"
+                  value={formData.nomeCompleto}
+                  onChange={(value) => handleInputChange('nomeCompleto', value)}
+                  placeholder="Seu nome completo"
+                  required
+                />
+                {errors.nomeCompleto && (
+                  <p className="text-red-500 text-sm mt-1">{errors.nomeCompleto}</p>
+                )}
+
+                <Input
+                  ref={fieldRefs.cpf}
+                  label="CPF"
+                  value={formData.cpf}
+                  onChange={(value) => handleInputChange('cpf', value)}
+                  placeholder="000.000.000-00"
+                  mask="cpf"
+                  required
+                  validate={validateCPF}
+                  showValidationError={true}
+                />
+                {errors.cpf && (
+                  <p className="text-red-500 text-sm mt-1">{errors.cpf}</p>
+                )}
+
+                <Input
+                  ref={fieldRefs.dataNascimento}
+                  label="Data de nascimento"
+                  type="date"
+                  value={formData.dataNascimento}
+                  onChange={(value) => handleInputChange('dataNascimento', value)}
+                  required
+                />
+                {errors.dataNascimento && (
+                  <p className="text-red-500 text-sm mt-1">{errors.dataNascimento}</p>
+                )}
+
+                {/* Seção de Registro Profissional */}
+                <div className="border-t border-gray-200 pt-6 mt-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Registro Profissional</h3>
+                </div>
+
+                <Select
+                  label="Especialidade"
+                  options={SPECIALTIES}
+                  value={formData.especialidade}
+                  onChange={(value) => handleInputChange('especialidade', value)}
+                  placeholder="Selecione sua especialidade"
+                />
+                {errors.especialidade && (
+                  <p className="text-red-500 text-sm mt-1">{errors.especialidade}</p>
+                )}
+
+                {/* Input de registro profissional - só aparece quando especialidade for selecionada */}
+                {formData.especialidade && (
+                  <Input
+                    ref={fieldRefs.crm}
+                    label={`${getSpecialtyRegistrationCode(formData.especialidade)}`}
+                    value={formData.crm}
+                    onChange={(value) => handleInputChange('crm', value)}
+                    placeholder={`Seu número de ${getSpecialtyRegistrationCode(formData.especialidade)}`}
+                    required
+                  />
+                )}
+                {errors.crm && (
+                  <p className="text-red-500 text-sm mt-1">{errors.crm}</p>
+                )}
+              </>
             )}
+
+            {/* Campos específicos para Empresa */}
+            {formData.tipoUsuario === 'company' && (
+              <>
+                <div className="border-b border-gray-200 pb-4 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Dados da Empresa</h3>
+                  <p className="text-sm text-gray-600">Informações da sua clínica ou instituição</p>
+                </div>
+
+                <Input
+                  ref={fieldRefs.razaoSocial}
+                  label="Razão Social"
+                  value={formData.razaoSocial}
+                  onChange={(value) => handleInputChange('razaoSocial', value)}
+                  placeholder="Nome oficial da empresa"
+                  required
+                />
+                {errors.razaoSocial && (
+                  <p className="text-red-500 text-sm mt-1">{errors.razaoSocial}</p>
+                )}
+
+                <Input
+                  ref={fieldRefs.nomeFantasia}
+                  label="Nome Fantasia"
+                  value={formData.nomeFantasia}
+                  onChange={(value) => handleInputChange('nomeFantasia', value)}
+                  placeholder="Nome comercial da empresa"
+                  required
+                />
+                {errors.nomeFantasia && (
+                  <p className="text-red-500 text-sm mt-1">{errors.nomeFantasia}</p>
+                )}
+
+                <Input
+                  ref={fieldRefs.cnpj}
+                  label="CNPJ"
+                  value={formData.cnpj}
+                  onChange={(value) => handleInputChange('cnpj', value)}
+                  placeholder="00.000.000/0000-00"
+                  mask="cnpj"
+                  required
+                  validate={validateCNPJ}
+                  showValidationError={true}
+                />
+                {errors.cnpj && (
+                  <p className="text-red-500 text-sm mt-1">{errors.cnpj}</p>
+                )}
+
+                <div className="border-t border-gray-200 pt-6 mt-6">
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Dados do Responsável</h4>
+                  
+                  <div className="space-y-6">
+                    <Input
+                      ref={fieldRefs.responsavel}
+                      label="Nome do Responsável"
+                      value={formData.responsavel}
+                      onChange={(value) => handleInputChange('responsavel', value)}
+                      placeholder="Nome completo do responsável"
+                      required
+                    />
+                    {errors.responsavel && (
+                      <p className="text-red-500 text-sm mt-1">{errors.responsavel}</p>
+                    )}
+
+                    <Input
+                      ref={fieldRefs.cpfResponsavel}
+                      label="CPF do Responsável"
+                      value={formData.cpfResponsavel}
+                      onChange={(value) => handleInputChange('cpfResponsavel', value)}
+                      placeholder="000.000.000-00"
+                      mask="cpf"
+                      required
+                      validate={validateCPF}
+                      showValidationError={true}
+                    />
+                    {errors.cpfResponsavel && (
+                      <p className="text-red-500 text-sm mt-1">{errors.cpfResponsavel}</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Campos comuns */}
+            <div className="border-t border-gray-200 pt-6 mt-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados de Acesso</h3>
+            </div>
 
             <Input
               ref={fieldRefs.email}
@@ -240,19 +540,6 @@ const CadastrarPage = () => {
             />
             {errors.email && (
               <p className="text-red-500 text-sm mt-1">{errors.email}</p>
-            )}
-
-            <Input
-              ref={fieldRefs.cpf}
-              label="CPF"
-              value={formData.cpf}
-              onChange={(value) => handleInputChange('cpf', value)}
-              placeholder="000.000.000-00"
-              mask="cpf"
-              required
-            />
-            {errors.cpf && (
-              <p className="text-red-500 text-sm mt-1">{errors.cpf}</p>
             )}
 
             <Input
@@ -292,18 +579,6 @@ const CadastrarPage = () => {
             />
             {errors.confirmarSenha && (
               <p className="text-red-500 text-sm mt-1">{errors.confirmarSenha}</p>
-            )}
-
-            <Input
-              ref={fieldRefs.dataNascimento}
-              label="Data de nascimento"
-              type="date"
-              value={formData.dataNascimento}
-              onChange={(value) => handleInputChange('dataNascimento', value)}
-              required
-            />
-            {errors.dataNascimento && (
-              <p className="text-red-500 text-sm mt-1">{errors.dataNascimento}</p>
             )}
 
             {/* Global error message */}

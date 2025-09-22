@@ -36,14 +36,6 @@ const AvatarUpload: React.FC<AvatarUploadProps> = ({
     xl: 'w-32 h-32 text-3xl'
   };
 
-  const getUserInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n.charAt(0))
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -128,7 +120,12 @@ const AvatarUpload: React.FC<AvatarUploadProps> = ({
               className="w-full h-full rounded-full object-cover"
             />
           ) : (
-            getUserInitials(userName)
+            userName
+              .split(' ')
+              .map(n => n.charAt(0))
+              .join('')
+              .toUpperCase()
+              .slice(0, 2)
           )}
         </div>
 

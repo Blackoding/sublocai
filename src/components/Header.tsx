@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Button from './Button';
 import Icon from './Icon';
 import { useAuthStore } from '@/stores/authStore';
+import { getUserDisplayName, getUserInitials } from '@/types';
 
 const Header: React.FC = () => {
   const router = useRouter();
@@ -18,6 +19,7 @@ const Header: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -67,6 +69,7 @@ const Header: React.FC = () => {
   const handleLogout = async () => {
     try {
       console.log('Header - Iniciando logout...');
+      setIsLoggingOut(true);
       await signOut();
       console.log('Header - Logout concluído');
       setIsUserMenuOpen(false);
@@ -74,17 +77,11 @@ const Header: React.FC = () => {
       console.log('Header - Redirecionado para home');
     } catch (error) {
       console.error('Erro ao fazer logout:', error);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
-  const getUserInitials = (fullName: string) => {
-    return fullName
-      .split(' ')
-      .map(name => name.charAt(0))
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
 
   return (
     <header className={`fixed top-0 left-0 right-0 bg-white backdrop-blur-sm z-50 transition-shadow duration-300 ${
@@ -140,13 +137,13 @@ const Header: React.FC = () => {
                   {user.avatar ? (
                     <Image
                       src={user.avatar}
-                      alt={`Avatar de ${user.fullName}`}
+                      alt={`Avatar de ${getUserDisplayName(user)}`}
                       width={48}
                       height={48}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    getUserInitials(user.fullName)
+                    getUserInitials(user)
                   )}
                 </button>
                 
@@ -161,6 +158,13 @@ const Header: React.FC = () => {
                       Painel
                     </Link>
                     <Link
+                      href="/agendamentos"
+                      onClick={() => setIsUserMenuOpen(false)}
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                    >
+                      Agendamentos
+                    </Link>
+                    <Link
                       href="/perfil"
                       onClick={() => setIsUserMenuOpen(false)}
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
@@ -169,9 +173,21 @@ const Header: React.FC = () => {
                     </Link>
                     <button
                       onClick={handleLogout}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                      disabled={isLoggingOut}
+                      className={`block w-full text-left px-4 py-2 text-sm transition-colors duration-200 ${
+                        isLoggingOut 
+                          ? 'text-gray-400 cursor-not-allowed' 
+                          : 'text-red-600 hover:bg-gray-100 cursor-pointer'
+                      }`}
                     >
-                      Sair
+                      {isLoggingOut ? (
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                          Saindo...
+                        </div>
+                      ) : (
+                        'Sair'
+                      )}
                     </button>
                   </div>
                 )}
@@ -209,13 +225,13 @@ const Header: React.FC = () => {
                   {user.avatar ? (
                     <Image
                       src={user.avatar}
-                      alt={`Avatar de ${user.fullName}`}
+                      alt={`Avatar de ${getUserDisplayName(user)}`}
                       width={48}
                       height={48}
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    getUserInitials(user.fullName)
+                    getUserInitials(user)
                   )}
                 </button>
                 
@@ -238,9 +254,21 @@ const Header: React.FC = () => {
                     </Link>
                     <button
                       onClick={handleLogout}
-                      className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                      disabled={isLoggingOut}
+                      className={`block w-full text-left px-3 py-2 text-sm transition-colors duration-200 ${
+                        isLoggingOut 
+                          ? 'text-gray-400 cursor-not-allowed' 
+                          : 'text-red-600 hover:bg-gray-100 cursor-pointer'
+                      }`}
                     >
-                      Sair
+                      {isLoggingOut ? (
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                          Saindo...
+                        </div>
+                      ) : (
+                        'Sair'
+                      )}
                     </button>
                   </div>
                 )}

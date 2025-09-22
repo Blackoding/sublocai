@@ -1,14 +1,14 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { SUPABASE_CONFIG } from '@/config/supabase'
 
-// Valores hardcoded diretamente no código
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-// const _supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxOTg3NTEsImV4cCI6MjA3Mzc3NDc1MX0.K8NfXbU_rTnCT86v8hzKryfeguL5MGV2s17L7OH4JGw'
-
-// Service Role Key para acesso administrativo completo
-const supabaseServiceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+// Usar configuração hardcoded para garantir funcionamento
+const supabaseUrl = SUPABASE_CONFIG.url
+const supabaseAnonKey = SUPABASE_CONFIG.anonKey
+const supabaseServiceRoleKey = SUPABASE_CONFIG.serviceRoleKey
 
 let supabaseInstance: SupabaseClient | null = null
 let supabaseAdminInstance: SupabaseClient | null = null
+let supabaseAuthInstance: SupabaseClient | null = null
 
 export const getSupabaseClient = (): SupabaseClient => {
   if (!supabaseInstance) {
@@ -53,4 +53,31 @@ export const supabaseAdmin = (): SupabaseClient => {
     supabaseAdminInstance = createClient(supabaseUrl, supabaseServiceRoleKey)
   }
   return supabaseAdminInstance
+}
+
+// Cliente Supabase para autenticação (usa anon key)
+export const getSupabaseAuthClient = (): SupabaseClient => {
+  if (!supabaseAuthInstance) {
+    // Validar se as chaves estão presentes
+    if (!supabaseUrl) {
+      throw new Error('supabaseUrl is required');
+    }
+    if (!supabaseAnonKey) {
+      throw new Error('supabaseAnonKey is required');
+    }
+    
+    console.log('Criando cliente Supabase para autenticação...')
+    console.log('URL:', supabaseUrl)
+    console.log('Anon Key (primeiros 20 chars):', supabaseAnonKey.substring(0, 20) + '...')
+    
+    // Usar anon key para autenticação normal
+    supabaseAuthInstance = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false
+      }
+    })
+  }
+  return supabaseAuthInstance
 }

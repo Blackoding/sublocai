@@ -327,6 +327,12 @@ const AnunciarPage = () => {
       return;
     }
     
+    // Verificar se o usuário é do tipo empresa
+    if (user?.userType !== 'company') {
+      alert('Apenas empresas podem anunciar consultórios.');
+      return;
+    }
+    
     if (!validateForm()) {
       return;
     }
@@ -478,8 +484,54 @@ const AnunciarPage = () => {
           />
         )}
 
+        {/* Warning para usuários que não são empresas */}
+        {!authLoading && isAuthenticated && user?.userType !== 'company' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-8">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-lg font-medium text-amber-800">
+                  Apenas empresas podem anunciar consultórios
+                </h3>
+                <div className="mt-2 text-sm text-amber-700">
+                  <p>
+                    Para anunciar consultórios, você precisa ter uma conta do tipo &quot;Empresa&quot;. 
+                    Sua conta atual é do tipo &quot;{user?.userType === 'professional' ? 'Profissional' : 'Indefinido'}&quot;.
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Link
+                      href="/perfil"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-amber-800 bg-amber-100 hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      Ver meu perfil
+                    </Link>
+                    <Link
+                      href="/contato"
+                      className="inline-flex items-center px-4 py-2 border border-amber-300 text-sm font-medium rounded-md text-amber-800 bg-white hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors"
+                    >
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                      Entrar em contato
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Formulário */}
-        <div className={`bg-white rounded-3xl shadow-md p-8 ${!isAuthenticated ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div className={`bg-white rounded-3xl shadow-md p-8 ${!isAuthenticated || user?.userType !== 'company' ? 'opacity-50 pointer-events-none' : ''}`}>
           <form onSubmit={handleSubmit} className="space-y-8">
             
             {/* Seção: Informações Básicas */}

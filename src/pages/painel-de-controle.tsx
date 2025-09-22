@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { useClinicRatings } from '@/hooks/useClinicRatings';
 // import { Clinic } from '@/types';
 import { formatDetailedAddress } from '@/constants/address';
+import { AppointmentService } from '@/services/appointmentService';
 
 const ControlPanelPage = () => {
   const router = useRouter();
@@ -16,6 +17,11 @@ const ControlPanelPage = () => {
   const [clinics, setClinics] = useState<Record<string, unknown>[]>([]);
   const [isLoadingClinics, setIsLoadingClinics] = useState(false);
   const [filterStatus, setFilterStatus] = useState('todos');
+  const [financialData, setFinancialData] = useState({
+    received: 0,
+    pending: 0,
+    isLoading: false
+  });
 
   // Hook para calcular ratings dos consultórios
   const clinicIds = useMemo(() => 
@@ -79,6 +85,75 @@ const ControlPanelPage = () => {
     };
 
     loadClinics();
+  }, [isAuthenticated, user?.id]);
+
+  // Load financial data from appointments
+  useEffect(() => {
+    const loadFinancialData = async () => {
+      if (isAuthenticated && user?.id) {
+        console.log('💰 Carregando dados financeiros para usuário:', user.id);
+        setFinancialData(prev => ({ ...prev, isLoading: true }));
+        try {
+          // Teste de conexão primeiro
+          const connectionTest = await AppointmentService.testConnection();
+          console.log('💰 Teste de conexão:', connectionTest);
+          
+          const result = await AppointmentService.getAllUserAppointments(user.id);
+          console.log('💰 Resultado do AppointmentService:', result);
+          
+          if (result.data) {
+            const appointments = result.data;
+            console.log('💰 Agendamentos encontrados:', appointments.length);
+            console.log('💰 Primeiro agendamento:', appointments[0]);
+            
+            // Calcular valores
+            const completedAppointments = appointments.filter(apt => apt.status === 'completed');
+            const pendingAppointments = appointments.filter(apt => apt.status === 'pending' || apt.status === 'confirmed');
+            
+            console.log('💰 Agendamentos concluídos:', completedAppointments);
+            console.log('💰 Agendamentos pendentes/confirmados:', pendingAppointments);
+            
+            const received = completedAppointments.reduce((sum, apt) => {
+              const value = typeof apt.value === 'string' ? parseFloat(apt.value) : apt.value;
+              console.log('💰 Valor do agendamento concluído:', apt.value, 'Convertido:', value);
+              return sum + (value || 0);
+            }, 0);
+            
+            const pending = pendingAppointments.reduce((sum, apt) => {
+              const value = typeof apt.value === 'string' ? parseFloat(apt.value) : apt.value;
+              console.log('💰 Valor do agendamento pendente:', apt.value, 'Convertido:', value);
+              return sum + (value || 0);
+            }, 0);
+            
+            console.log('💰 Valores calculados - Recebido:', received, 'Pendente:', pending);
+            
+            setFinancialData({
+              received,
+              pending,
+              isLoading: false
+            });
+          } else {
+            console.log('💰 Nenhum dado de agendamento encontrado');
+            setFinancialData({
+              received: 0,
+              pending: 0,
+              isLoading: false
+            });
+          }
+        } catch (error) {
+          console.error('💰 Erro ao carregar dados financeiros:', error);
+          setFinancialData({
+            received: 0,
+            pending: 0,
+            isLoading: false
+          });
+        }
+      } else {
+        console.log('💰 Usuário não autenticado ou sem ID');
+      }
+    };
+
+    loadFinancialData();
   }, [isAuthenticated, user?.id]);
 
   // Filter clinics by status
@@ -220,6 +295,43 @@ const ControlPanelPage = () => {
                   Novo Consultório
                 </Button>
               </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Resumo Financeiro */}
+        <div className="bg-gradient-to-r from-green-500 to-blue-600 rounded-2xl shadow-lg p-6 md:p-8 mb-8 text-white">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+            <div className="mb-4 sm:mb-0">
+              <h2 className="text-xl md:text-2xl font-bold mb-2">Resumo Financeiro</h2>
+              <p className="text-green-100 text-sm md:text-base">Acompanhe seus ganhos e recebimentos</p>
+            </div>
+          </div>
+          
+          {/* Layout Compacto - Valores Empilhados */}
+          <div className="text-center">
+            <div className="mb-2">
+              <span className="text-sm text-white">Valor Recebido</span>
+            </div>
+            <div className="text-4xl md:text-5xl font-bold mb-4 text-white">
+              {financialData.isLoading ? (
+                <div className="animate-pulse bg-white bg-opacity-20 h-12 md:h-16 w-32 md:w-40 rounded mx-auto"></div>
+              ) : (
+                `R$ ${(financialData.received || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+              )}
+            </div>
+            
+            <div className="border-t border-white border-opacity-30 pt-4">
+              <div className="mb-1">
+                <span className="text-xs text-white">Valor a Receber</span>
+              </div>
+              <div className="text-lg md:text-xl font-semibold text-white">
+                {financialData.isLoading ? (
+                  <div className="animate-pulse bg-white bg-opacity-20 h-6 md:h-7 w-20 md:w-24 rounded mx-auto"></div>
+                ) : (
+                  `R$ ${(financialData.pending || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                )}
+              </div>
             </div>
           </div>
         </div>

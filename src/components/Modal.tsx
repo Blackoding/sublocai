@@ -61,7 +61,7 @@ const Modal: React.FC<ModalProps> = ({
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
       onClick={handleOverlayClick}
     >
-      <div className={`bg-white rounded-3xl shadow-xl w-full ${getSizeClasses()} max-h-[90vh] overflow-hidden`}>
+      <div className={`bg-white rounded-3xl shadow-xl w-full ${getSizeClasses()} max-h-[95vh] overflow-hidden`}>
         {/* Header do Modal */}
         <div className="p-6 border-b border-gray-200 flex items-start justify-between">
           <div className="flex-1">
@@ -84,7 +84,7 @@ const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Conteúdo do Modal */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+        <div className="p-6 overflow-y-auto max-h-[calc(95vh-100px)]">
           {children}
         </div>
 

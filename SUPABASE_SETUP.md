@@ -10,13 +10,32 @@ Para que o sistema de autenticação funcione corretamente, você precisa criar 
 CREATE TABLE users (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
-  full_name TEXT NOT NULL,
-  cpf TEXT UNIQUE NOT NULL,
   phone TEXT,
-  birth_date DATE NOT NULL,
   avatar TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  -- Campos para profissionais
+  full_name TEXT,
+  cpf TEXT UNIQUE,
+  birth_date DATE,
+  specialty TEXT,
+  registration_code TEXT,
+  
+  -- Campos para empresas
+  user_type TEXT CHECK (user_type IN ('professional', 'company')),
+  company_name TEXT,
+  trade_name TEXT,
+  cnpj TEXT UNIQUE,
+  responsible_name TEXT,
+  responsible_cpf TEXT,
+  
+  -- Constraint para garantir integridade dos dados
+  CONSTRAINT check_user_fields CHECK (
+    (user_type = 'professional' AND full_name IS NOT NULL AND cpf IS NOT NULL AND birth_date IS NOT NULL) OR
+    (user_type = 'company' AND company_name IS NOT NULL AND cnpj IS NOT NULL AND responsible_name IS NOT NULL) OR
+    (user_type IS NULL) -- Para compatibilidade com registros existentes
+  )
 );
 
 -- Habilitar RLS (Row Level Security)
@@ -33,6 +52,19 @@ CREATE POLICY "Users can update own profile" ON users
 -- Política para permitir inserção de novos usuários
 CREATE POLICY "Users can insert own profile" ON users
   FOR INSERT WITH CHECK (auth.uid() = id);
+```
+
+### Migração da Tabela `users` (se já existir)
+
+Se você já tem uma tabela `users` criada com a estrutura antiga, execute o script `update_users_table.sql` para atualizar a estrutura:
+
+```sql
+-- Execute o arquivo update_users_table.sql no SQL Editor do Supabase
+-- Este script irá:
+-- 1. Tornar campos obrigatórios opcionais
+-- 2. Adicionar novos campos para empresas
+-- 3. Adicionar constraints para garantir integridade dos dados
+-- 4. Adicionar índices únicos
 ```
 
 ### Função para atualizar `updated_at`
@@ -89,6 +121,81 @@ CREATE POLICY "Users can update own comments" ON comments
 
 CREATE POLICY "Users can delete own comments" ON comments
   FOR DELETE USING (auth.uid() = user_id);
+```
+
+### Tabela `appointments`
+
+Para permitir agendamentos de consultórios, execute o script `create_appointments_table.sql`:
+
+```sql
+-- Criar tabela de agendamentos
+CREATE TABLE IF NOT EXISTS appointments (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  clinic_id UUID NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  time TIME NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'cancelled', 'completed')),
+  notes TEXT,
+  value DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  
+  -- Garantir que não há conflitos de horário no mesmo consultório
+  UNIQUE(clinic_id, date, time)
+);
+
+-- Habilitar RLS (Row Level Security)
+ALTER TABLE appointments ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de segurança
+CREATE POLICY "Anyone can view appointments" ON appointments
+  FOR SELECT USING (true);
+
+CREATE POLICY "Authenticated users can insert appointments" ON appointments
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id AND
+    auth.uid() IS NOT NULL
+  );
+
+CREATE POLICY "Users can update own appointments" ON appointments
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own appointments" ON appointments
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Política para permitir que proprietários de consultórios vejam agendamentos de seus consultórios
+CREATE POLICY "Clinic owners can view clinic appointments" ON appointments
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM clinics 
+      WHERE clinics.id = appointments.clinic_id 
+      AND clinics.user_id = auth.uid()
+    )
+  );
+
+-- Política para permitir que proprietários de consultórios atualizem status dos agendamentos
+CREATE POLICY "Clinic owners can update appointment status" ON appointments
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM clinics 
+      WHERE clinics.id = appointments.clinic_id 
+      AND clinics.user_id = auth.uid()
+    )
+  );
+
+-- Criar índices para melhor performance
+CREATE INDEX IF NOT EXISTS idx_appointments_clinic_id ON appointments(clinic_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_user_id ON appointments(user_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(date);
+CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status);
+CREATE INDEX IF NOT EXISTS idx_appointments_clinic_date ON appointments(clinic_id, date);
+
+-- Função para atualizar updated_at
+CREATE TRIGGER update_appointments_updated_at 
+  BEFORE UPDATE ON appointments 
+  FOR EACH ROW 
+  EXECUTE FUNCTION update_updated_at_column();
 ```
 
 ### Storage para Avatars

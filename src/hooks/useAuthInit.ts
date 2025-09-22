@@ -13,32 +13,10 @@ export const useAuthInit = () => {
         return;
       }
 
-      // Verificar se há token no localStorage antes de buscar
-      const token = localStorage.getItem('sb-nmxcqiwslkuvdydlsolm-auth-token');
-      if (!token) {
-        console.log('useAuthInit - Nenhum token encontrado');
-        return;
-      }
-
       console.log('useAuthInit - Buscando usuário...');
       getCurrentUser().catch((error) => {
         console.warn('Failed to get current user:', error);
       });
-
-      // Listener para mudanças no localStorage
-      const handleStorageChange = (e: StorageEvent) => {
-        if (e.key === 'sb-nmxcqiwslkuvdydlsolm-auth-token') {
-          getCurrentUser().catch((error) => {
-            console.warn('Failed to get current user after storage change:', error);
-          });
-        }
-      };
-
-      window.addEventListener('storage', handleStorageChange);
-
-      return () => {
-        window.removeEventListener('storage', handleStorageChange);
-      };
     }
-  }, [getCurrentUser, user, isAuthenticated]);
+  }, [user, isAuthenticated]); // Removido getCurrentUser das dependências
 };

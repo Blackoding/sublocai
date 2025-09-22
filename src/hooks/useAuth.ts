@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getSupabaseAuthClient } from '@/services/supabase';
 
 export const useAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -20,18 +21,32 @@ export const useAuth = () => {
         return { success: false, user: null, error: 'Server side execution not allowed' };
       }
 
-      // Verificar se há token de autenticação no localStorage
-      const token = localStorage.getItem('sb-nmxcqiwslkuvdydlsolm-auth-token');
-      if (!token) {
-        return { success: false, user: null, error: 'No authentication token' };
+      // Usar o cliente Supabase para obter a sessão atual
+      const supabase = getSupabaseAuthClient();
+      
+      // Adicionar timeout para evitar travamento
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout ao obter sessão')), 3000)
+      );
+      
+      const { data: { session }, error } = await Promise.race([sessionPromise, timeoutPromise]) as { data: { session: unknown }, error: unknown };
+      
+      if (error) {
+        return { success: false, user: null, error: (error as { message: string }).message || 'Erro desconhecido' };
+      }
+      
+      if (!session) {
+        return { success: false, user: null, error: 'No active session' };
       }
 
-      // Buscar dados do usuário usando fetch direto
-      const response = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?select=*&limit=1', {
+      // Buscar dados do usuário usando o ID da sessão
+      const sessionData = session as { user: { id: string }; access_token: string };
+      const response = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?select=*&id=eq.' + sessionData.user.id, {
         method: 'GET',
         headers: {
           'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${sessionData.access_token}`,
           'Content-Type': 'application/json'
         }
       });
@@ -81,29 +96,19 @@ export const useAuth = () => {
 
     checkAuth();
 
-    // Listener para mudanças no localStorage (quando o usuário faz login/logout)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'sb-nmxcqiwslkuvdydlsolm-auth-token') {
+    // Listener para mudanças de autenticação do Supabase
+    const supabase = getSupabaseAuthClient();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session) {
         checkAuth();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    // Verificar periodicamente se o token mudou
-    const interval = setInterval(() => {
-      const token = localStorage.getItem('sb-nmxcqiwslkuvdydlsolm-auth-token');
-      if (token && !user) {
-        checkAuth();
-      } else if (!token && user) {
+      } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsAuthenticated(false);
       }
-    }, 1000);
+    });
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
+      subscription.unsubscribe();
     };
   }, [user]);
 

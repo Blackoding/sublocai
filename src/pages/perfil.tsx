@@ -4,7 +4,11 @@ import Link from 'next/link';
 import Button from '@/components/Button';
 import Loading from '@/components/Loading';
 import AvatarUpload from '@/components/AvatarUpload';
+import Input from '@/components/Input';
+import Select from '@/components/Select';
 import { useAuthStore } from '@/stores/authStore';
+import { SPECIALTIES, getSpecialtyRegistrationCode } from '@/constants/specialties';
+import { getUserDisplayName } from '@/types';
 // import { User } from '@/types';
 
 const ProfilePage = () => {
@@ -13,11 +17,23 @@ const ProfilePage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
+    // Campos comuns
+    phone: '',
+    avatar: '',
+    
+    // Campos específicos para profissional
     fullName: '',
     cpf: '',
-    phone: '',
     birthDate: '',
-    avatar: ''
+    specialty: '',
+    registrationCode: '',
+    
+    // Campos específicos para empresa
+    companyName: '',
+    tradeName: '',
+    cnpj: '',
+    responsibleName: '',
+    responsibleCpf: ''
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -38,20 +54,31 @@ const ProfilePage = () => {
   useEffect(() => {
     if (user) {
       setFormData({
+        // Campos comuns
+        phone: user.phone || '',
+        avatar: user.avatar || '',
+        
+        // Campos específicos para profissional
         fullName: user.fullName || '',
         cpf: user.cpf || '',
-        phone: user.phone || '',
         birthDate: user.birthDate || '',
-        avatar: user.avatar || ''
+        specialty: user.specialty || '',
+        registrationCode: user.registrationCode || '',
+        
+        // Campos específicos para empresa
+        companyName: user.companyName || '',
+        tradeName: user.tradeName || '',
+        cnpj: user.cnpj || '',
+        responsibleName: user.responsibleName || '',
+        responsibleCpf: user.responsibleCpf || ''
       });
     }
   }, [user]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+  const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [field]: value
     }));
     // Clear error when user starts typing
     if (error) setError(null);
@@ -70,11 +97,23 @@ const ProfilePage = () => {
     // Reset form data to original user data
     if (user) {
       setFormData({
+        // Campos comuns
+        phone: user.phone || '',
+        avatar: user.avatar || '',
+        
+        // Campos específicos para profissional
         fullName: user.fullName || '',
         cpf: user.cpf || '',
-        phone: user.phone || '',
         birthDate: user.birthDate || '',
-        avatar: user.avatar || ''
+        specialty: user.specialty || '',
+        registrationCode: user.registrationCode || '',
+        
+        // Campos específicos para empresa
+        companyName: user.companyName || '',
+        tradeName: user.tradeName || '',
+        cnpj: user.cnpj || '',
+        responsibleName: user.responsibleName || '',
+        responsibleCpf: user.responsibleCpf || ''
       });
     }
     setError(null);
@@ -177,14 +216,14 @@ const ProfilePage = () => {
           <div className="flex flex-col md:flex-row items-center md:items-start mb-8 space-y-4 md:space-y-0 md:space-x-6">
             <AvatarUpload
               currentAvatar={formData.avatar}
-              userName={user.fullName || 'Usuário'}
+              userName={getUserDisplayName(user)}
               onAvatarChange={handleAvatarChange}
               disabled={isLoading}
               size="xl"
             />
             <div className="text-center md:text-left">
               <h2 className="text-2xl font-semibold text-gray-900">
-                {user.fullName || 'Usuário'}
+                {getUserDisplayName(user)}
               </h2>
               <p className="text-gray-600">{user.email}</p>
               <p className="text-sm text-gray-500">
@@ -216,28 +255,277 @@ const ProfilePage = () => {
             </div>
           )}
 
-          {/* Form Fields */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nome Completo
-              </label>
-              {isEditing ? (
-                <input
-                  name="fullName"
-                  value={formData.fullName}
-                  onChange={handleInputChange}
-                  placeholder="Digite seu nome completo"
-                  required
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2b9af3] focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
-                />
-              ) : (
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-gray-900">{user.fullName || 'Não informado'}</p>
-                </div>
-              )}
+          {/* Tipo de Conta - Não editável */}
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <h4 className="text-sm font-medium text-blue-900">
+                  Tipo de Conta: {user.userType === 'professional' ? 'Profissional' : 'Empresa'}
+                </h4>
+                <p className="text-xs text-blue-700 mt-1">
+                  O tipo de conta não pode ser alterado por questões de segurança
+                </p>
+              </div>
             </div>
+          </div>
 
+          {/* Campos específicos para Profissional */}
+          {user.userType === 'professional' && (
+            <>
+              {/* Seção de Dados Pessoais */}
+              <div className="border-b border-gray-200 pb-4 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Dados Pessoais</h3>
+                <p className="text-sm text-gray-600">Suas informações pessoais</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome Completo
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.fullName}
+                      onChange={(value) => handleInputChange('fullName', value)}
+                      placeholder="Digite seu nome completo"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">{user.fullName || 'Não informado'}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CPF
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.cpf}
+                      onChange={(value) => handleInputChange('cpf', value)}
+                      placeholder="000.000.000-00"
+                      mask="cpf"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">
+                        {user.cpf ? formatCPF(user.cpf) : 'Não informado'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Data de Nascimento
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      type="date"
+                      value={formData.birthDate}
+                      onChange={(value) => handleInputChange('birthDate', value)}
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">
+                        {user.birthDate ? formatDate(user.birthDate) : 'Não informado'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Seção de Registro Profissional */}
+              <div className="border-t border-gray-200 pt-6 mt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Registro Profissional</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Especialidade
+                  </label>
+                  {isEditing ? (
+                    <Select
+                      label=""
+                      options={SPECIALTIES}
+                      value={formData.specialty}
+                      onChange={(value) => handleInputChange('specialty', value)}
+                      placeholder="Selecione sua especialidade"
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">
+                        {user.specialty ? SPECIALTIES.find(s => s.value === user.specialty)?.label : 'Não informado'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Input de registro profissional - só aparece quando especialidade for selecionada */}
+                {formData.specialty && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {getSpecialtyRegistrationCode(formData.specialty)}
+                    </label>
+                    {isEditing ? (
+                      <Input
+                        label=""
+                        value={formData.registrationCode}
+                        onChange={(value) => handleInputChange('registrationCode', value)}
+                        placeholder={`Seu número de ${getSpecialtyRegistrationCode(formData.specialty)}`}
+                        required
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <p className="text-gray-900">
+                          {user.registrationCode || 'Não informado'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Campos específicos para Empresa */}
+          {user.userType === 'company' && (
+            <>
+              {/* Seção de Dados da Empresa */}
+              <div className="border-b border-gray-200 pb-4 mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Dados da Empresa</h3>
+                <p className="text-sm text-gray-600">Informações da sua clínica ou instituição</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Razão Social
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.companyName}
+                      onChange={(value) => handleInputChange('companyName', value)}
+                      placeholder="Nome oficial da empresa"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">{user.companyName || 'Não informado'}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome Fantasia
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.tradeName}
+                      onChange={(value) => handleInputChange('tradeName', value)}
+                      placeholder="Nome comercial da empresa"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">{user.tradeName || 'Não informado'}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CNPJ
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.cnpj}
+                      onChange={(value) => handleInputChange('cnpj', value)}
+                      placeholder="00.000.000/0000-00"
+                      mask="cnpj"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">
+                        {user.cnpj || 'Não informado'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Seção de Dados do Responsável */}
+              <div className="border-t border-gray-200 pt-6 mt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados do Responsável</h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome do Responsável
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.responsibleName}
+                      onChange={(value) => handleInputChange('responsibleName', value)}
+                      placeholder="Nome completo do responsável"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">{user.responsibleName || 'Não informado'}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    CPF do Responsável
+                  </label>
+                  {isEditing ? (
+                    <Input
+                      label=""
+                      value={formData.responsibleCpf}
+                      onChange={(value) => handleInputChange('responsibleCpf', value)}
+                      placeholder="000.000.000-00"
+                      mask="cpf"
+                      required
+                    />
+                  ) : (
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-gray-900">
+                        {user.responsibleCpf ? formatCPF(user.responsibleCpf) : 'Não informado'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Campos comuns */}
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Dados de Contato</h3>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 E-mail
@@ -250,64 +538,21 @@ const ProfilePage = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                CPF
-              </label>
-              {isEditing ? (
-                <input
-                  name="cpf"
-                  value={formData.cpf}
-                  onChange={handleInputChange}
-                  placeholder="000.000.000-00"
-                  maxLength={14}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2b9af3] focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
-                />
-              ) : (
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-gray-900">
-                    {user.cpf ? formatCPF(user.cpf) : 'Não informado'}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Telefone
               </label>
               {isEditing ? (
-                <input
-                  name="phone"
+                <Input
+                  label=""
                   value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="(00) 00000-0000"
-                  maxLength={15}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2b9af3] focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
+                  onChange={(value) => handleInputChange('phone', value)}
+                  placeholder="(11) 99999-9999"
+                  mask="phone"
+                  required
                 />
               ) : (
                 <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <p className="text-gray-900">
                     {user.phone ? formatPhone(user.phone) : 'Não informado'}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Data de Nascimento
-              </label>
-              {isEditing ? (
-                <input
-                  name="birthDate"
-                  type="date"
-                  value={formData.birthDate}
-                  onChange={handleInputChange}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#2b9af3] focus:border-transparent text-gray-900 placeholder-gray-500 bg-white"
-                />
-              ) : (
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-gray-900">
-                    {user.birthDate ? formatDate(user.birthDate) : 'Não informado'}
                   </p>
                 </div>
               )}

@@ -6,40 +6,126 @@ import Image from 'next/image';
 import { SublocationPlus, Clinic } from '@/types';
 import SublocationCard from '@/components/SublocationCard';
 import Button from '@/components/Button';
+import AppointmentModal from '@/components/AppointmentModal';
 // import AuthWarning from '@/components/AuthWarning';
 // import GoogleMap from '@/components/GoogleMap';
 import CommentsSection from '@/components/CommentsSection';
 import { getSupabaseClient } from '@/services/supabase';
+import { AppointmentService } from '@/services/appointmentService';
 // import { SPECIALTIES } from '@/constants/specialties';
 import { getFeatureInfo } from '@/constants/features';
 import { formatDetailedAddress, formatAvailability } from '@/constants/address';
 import { useSpecialties } from '@/hooks/useSpecialties';
-import { useOwner } from '@/hooks/useOwner';
+// import { useOwner } from '@/hooks/useOwner'; // Não utilizado
 import { BackButton } from '@/components/BackButton';
 import { useClinicRating } from '@/hooks/useClinicRating';
+import { useAuthStore } from '@/stores/authStore';
 
 // Usar a interface Clinic centralizada dos tipos
 type Consultorio = Clinic;
 
 interface ConsultorioPageProps {
   consultorio: Consultorio;
+  hasAvailability: boolean;
 }
 
-const ConsultorioPage = ({ consultorio }: ConsultorioPageProps) => {
+const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps) => {
   const router = useRouter();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [existingAppointments, setExistingAppointments] = useState<{ date: string; time: string; status: string }[]>([]);
+  
+  // Hook para autenticação
+  const { isAuthenticated, user } = useAuthStore();
   
   // Hook para calcular rating do consultório
   const { rating } = useClinicRating(consultorio.id);
   
-  // Usar o hook para buscar dados do owner
-  const { owner, isLoading: isLoadingOwner } = useOwner(consultorio.user_id);
-  
   // Hook para especialidades
   const { getSpecialtyLabel } = useSpecialties();
 
+  // Função para buscar agendamentos existentes
+  const loadExistingAppointments = async () => {
+    if (!consultorio.id) return;
+    
+    try {
+      const { AppointmentService } = await import('@/services/appointmentService');
+      const result = await AppointmentService.getAppointmentsByClinic(consultorio.id);
+      
+      if (result.data) {
+        const appointments = result.data.map(apt => ({
+          date: apt.date,
+          time: apt.time,
+          status: apt.status
+        }));
+        setExistingAppointments(appointments);
+        console.log('Agendamentos existentes carregados:', appointments);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar agendamentos existentes:', error);
+    }
+  };
 
+  // Função para abrir o modal de agendamento
+  const handleOpenAppointmentModal = () => {
+    setIsAppointmentModalOpen(true);
+    loadExistingAppointments();
+  };
 
+  // Função para lidar com o agendamento
+  const handleAppointmentSubmit = async (appointmentData: { date: string; selectedTimes: string[]; notes?: string }) => {
+    try {
+      // Verificar se o usuário está logado
+      if (!isAuthenticated) {
+        alert('Você precisa estar logado para fazer um agendamento.');
+        return;
+      }
+
+      if (!user) {
+        alert('Erro: Dados do usuário não encontrados. Faça login novamente.');
+        return;
+      }
+
+      // Processar múltiplos horários selecionados
+      const selectedTimes = appointmentData.selectedTimes || [];
+      
+      if (selectedTimes.length === 0) {
+        alert('Por favor, selecione pelo menos um horário.');
+        return;
+      }
+
+      // Criar múltiplos agendamentos usando o novo serviço
+      const appointmentDataToSend = {
+        clinic_id: consultorio.id || '',
+        user_id: user.id || '',
+        date: appointmentData.date || '',
+        selected_times: selectedTimes,
+        notes: appointmentData.notes || '',
+        value: consultorio.price
+      };
+
+      const result = await AppointmentService.createAppointments(appointmentDataToSend);
+      
+      if (result.error) {
+        console.error('Erro ao criar agendamentos:', result.error);
+        alert(`Erro ao criar agendamentos: ${result.error}`);
+        return;
+      }
+
+      // Sucesso
+      const timesText = selectedTimes.join(', ');
+      const totalValue = consultorio.price * selectedTimes.length;
+      alert(`✅ Agendamento criado com sucesso!\n\nData: ${appointmentData.date}\nHorários: ${timesText}\nValor total: R$ ${totalValue.toFixed(2).replace('.', ',')}\n\nVocê receberá uma confirmação por email.`);
+      
+      // Fechar o modal
+      setIsAppointmentModalOpen(false);
+      
+      console.log('Agendamentos criados com sucesso:', result.data);
+    } catch (error) {
+      console.error('Erro ao criar agendamento:', error);
+      alert('Erro ao criar agendamento. Tente novamente.');
+    }
+  };
 
 
 
@@ -286,12 +372,12 @@ const ConsultorioPage = ({ consultorio }: ConsultorioPageProps) => {
             </div>
 
             {/* Disponibilidade */}
-            {consultorio.availability && consultorio.availability.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Disponibilidade</h2>
+            <div className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Disponibilidade</h2>
+              {hasAvailability ? (
                 <div className="bg-gray-50 p-6 rounded-lg">
                   <div className="space-y-3">
-                    {formatAvailability(consultorio.availability)?.split('\n').map((schedule, index) => (
+                    {formatAvailability(consultorio.availability || [])?.split('\n').map((schedule, index) => (
                       <div key={index} className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
                         <p className="text-gray-700 font-medium">{schedule}</p>
@@ -299,8 +385,23 @@ const ConsultorioPage = ({ consultorio }: ConsultorioPageProps) => {
                     ))}
                   </div>
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <svg className="w-6 h-6 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    <div>
+                      <p className="text-yellow-800 font-medium">Disponibilidade não configurada</p>
+                      <p className="text-yellow-700 text-sm mt-1">
+                        Este consultório ainda não possui horários de disponibilidade definidos. 
+                        Entre em contato com o proprietário para mais informações.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
 
             {/* Localização */}
@@ -323,53 +424,38 @@ const ConsultorioPage = ({ consultorio }: ConsultorioPageProps) => {
             </div>
 
 
-            {/* Botão de contato - só aparece se o consultório estiver ativo */}
-            {consultorio.status === 'active' && (
-              <>
-                {isLoadingOwner ? (
-                  <div className="flex gap-4">
-                    <Button 
-                      variant="whatsapp"
-                      size="lg"
-                      className="flex-1"
-                      disabled
-                    >
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
-                      Carregando...
-                    </Button>
+            {/* Botão de agendamento - só aparece se o consultório estiver ativo e tiver disponibilidade */}
+            {consultorio.status === 'active' && hasAvailability && (
+              <div className="flex gap-4">
+                <Button 
+                  size="lg"
+                  className="flex-1"
+                  onClick={handleOpenAppointmentModal}
+                >
+                  <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Agendar Consulta
+                </Button>
+              </div>
+            )}
+
+            {/* Mensagem quando não há disponibilidade para agendamento */}
+            {consultorio.status === 'active' && !hasAvailability && (
+              <div className="bg-gray-100 p-6 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <svg className="w-6 h-6 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-gray-700 font-medium">Agendamento temporariamente indisponível</p>
+                    <p className="text-gray-600 text-sm mt-1">
+                      Este consultório não possui horários de disponibilidade configurados. 
+                      Entre em contato com o proprietário para mais informações.
+                    </p>
                   </div>
-                ) : owner ? (
-                  <div className="flex gap-4">
-                    <Button 
-                      variant="whatsapp"
-                      size="lg"
-                      className="flex-1"
-                      onClick={() => {
-                        const message = `Olá! Tenho interesse no consultório "${consultorio.title}" localizado em ${formatDetailedAddress(consultorio)}. Gostaria de mais informações sobre disponibilidade e valores.`;
-                        // Remove todos os caracteres não numéricos do telefone
-                        const cleanPhone = owner.phone.replace(/\D/g, '') || '';
-                        const whatsappUrl = `https://wa.me/55${cleanPhone}?text=${encodeURIComponent(message)}`;
-                        window.open(whatsappUrl, '_blank');
-                      }}
-                    >
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                      </svg>
-                      Entrar em contato
-                    </Button>
-                    {/* Botão de favorito - COMENTADO */}
-                    {/* <Button 
-                      variant="outline"
-                      size="lg"
-                      className="p-4"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                      </svg>
-                    </Button> */}
-                  </div>
-                ) : null}
-              </>
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -407,6 +493,17 @@ const ConsultorioPage = ({ consultorio }: ConsultorioPageProps) => {
 
       </div>
     </div>
+
+    {/* Modal de Agendamento */}
+    <AppointmentModal
+      isOpen={isAppointmentModalOpen}
+      onClose={() => setIsAppointmentModalOpen(false)}
+      onSubmit={handleAppointmentSubmit}
+      clinicTitle={consultorio.title}
+      clinicPrice={consultorio.price}
+      clinicAvailability={consultorio.availability}
+      existingAppointments={existingAppointments}
+    />
     </>
   );
 };
@@ -436,11 +533,27 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       };
     }
 
+    // Verificar se há disponibilidade configurada
+    const hasAvailability = clinic.availability && 
+      Array.isArray(clinic.availability) && 
+      clinic.availability.length > 0 &&
+      clinic.availability.some((item: { day: string; startTime: string; endTime: string }) => 
+        item && 
+        item.day && 
+        item.startTime && 
+        item.endTime
+      );
+
     // Verificar se o usuário está logado
     let currentUserId: string | null = null;
     try {
       // Tentar obter o usuário atual através do cookie de sessão
-      const { data: { user } } = await supabase.auth.getUser();
+      const userPromise = supabase.auth.getUser();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout ao obter usuário')), 3000)
+      );
+      
+      const { data: { user } } = await Promise.race([userPromise, timeoutPromise]) as { data: { user: { id: string } | null } };
       currentUserId = user?.id || null;
     } catch {
       // Se não conseguir obter o usuário, currentUserId permanece null
@@ -477,6 +590,7 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     return {
       props: {
         consultorio,
+        hasAvailability,
       },
     };
   } catch {

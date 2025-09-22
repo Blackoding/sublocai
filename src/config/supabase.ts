@@ -1,0 +1,6 @@
+// Configuração do Supabase com valores hardcoded para debug
+export const SUPABASE_CONFIG = {
+  url: 'https://nmxcqiwslkuvdydlsolm.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxOTg3NTEsImV4cCI6MjA3Mzc3NDc1MX0.K8NfXbU_rTnCT86v8hzKryfeguL5MGV2s17L7OH4JGw',
+  serviceRoleKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0'
+};

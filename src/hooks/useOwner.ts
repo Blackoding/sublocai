@@ -17,25 +17,19 @@ export const useOwner = (userId: string | null): UseOwnerResult => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const getCurrentUser = async () => {
+  const getUserById = async (userId: string) => {
     try {
       // Só executa no cliente
       if (typeof window === 'undefined') {
         return { success: false, user: null, error: 'Server side execution not allowed' };
       }
 
-      // Verificar se há token de autenticação no localStorage
-      const token = localStorage.getItem('sb-nmxcqiwslkuvdydlsolm-auth-token');
-      if (!token) {
-        return { success: false, user: null, error: 'No authentication token' };
-      }
-
-      // Buscar dados do usuário usando fetch direto
-      const response = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?select=*&limit=1', {
+      // Buscar dados do usuário específico pelo ID usando service role key
+      const response = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${userId}&select=*&limit=1`, {
         method: 'GET',
         headers: {
           'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
           'Content-Type': 'application/json'
         }
       });
@@ -67,12 +61,14 @@ export const useOwner = (userId: string | null): UseOwnerResult => {
         setIsLoading(true);
         setError(null);
         
-        const result = await getCurrentUser();
+        const result = await getUserById(userId);
 
         if (result.success && result.user) {
           // console.log('✅ Dados do usuário encontrados:', result.user);
           setOwner({
-            name: result.user.full_name || result.user.fullName,
+            name: result.user.user_type === 'company' 
+              ? (result.user.trade_name || result.user.company_name || 'Empresa')
+              : (result.user.full_name || result.user.fullName || 'Usuário'),
             phone: result.user.phone || '(11) 99999-9999',
             email: result.user.email
           });

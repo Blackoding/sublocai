@@ -14,6 +14,7 @@ interface SelectProps {
   onChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 const Select: React.FC<SelectProps> = ({ 
@@ -22,7 +23,8 @@ const Select: React.FC<SelectProps> = ({
   value, 
   onChange, 
   placeholder = "Selecione uma opção",
-  className = ""
+  className = "",
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedValue, setSelectedValue] = useState(value || '');
@@ -30,6 +32,11 @@ const Select: React.FC<SelectProps> = ({
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const [isInTable, setIsInTable] = useState(false);
   const selectRef = useRef<HTMLDivElement>(null);
+
+  // Atualizar selectedValue quando o prop value muda
+  useEffect(() => {
+    setSelectedValue(value || '');
+  }, [value]);
 
   const selectedOption = options.find(option => option.value === selectedValue);
 
@@ -105,6 +112,7 @@ const Select: React.FC<SelectProps> = ({
   }, [isOpen, isInTable, dropdownPosition]);
 
   const handleSelect = (optionValue: string) => {
+    if (disabled) return;
     setSelectedValue(optionValue);
     onChange?.(optionValue);
     setIsOpen(false);
@@ -123,14 +131,23 @@ const Select: React.FC<SelectProps> = ({
       <div className="relative">
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
-          className={`w-full bg-white border rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm transition-colors duration-200 cursor-pointer flex flex-row gap-2 items-center justify-between ${
-            selectedOption 
-              ? 'border-[#2b9af3] hover:border-[#1e7ce6]' 
-              : 'border-gray-200 hover:border-gray-300'
+          onClick={() => !disabled && setIsOpen(!isOpen)}
+          disabled={disabled}
+          className={`w-full border rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm transition-colors duration-200 flex flex-row gap-2 items-center justify-between ${
+            disabled 
+              ? 'bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed' 
+              : selectedOption 
+                ? 'bg-white border-[#2b9af3] hover:border-[#1e7ce6] cursor-pointer' 
+                : 'bg-white border-gray-200 hover:border-gray-300 cursor-pointer'
           }`}
         >
-          <span className={`block truncate ${selectedOption ? 'text-gray-900' : 'text-gray-500'}`}>
+          <span className={`block truncate ${
+            disabled 
+              ? 'text-gray-400' 
+              : selectedOption 
+                ? 'text-gray-900' 
+                : 'text-gray-500'
+          }`}>
             {selectedOption ? selectedOption.label : placeholder}
           </span>
           
@@ -139,7 +156,9 @@ const Select: React.FC<SelectProps> = ({
             <Icon 
               name="chevron-down" 
               size="md" 
-              className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+              className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${
+                disabled ? 'text-gray-300' : 'text-gray-400'
+              }`}
             />
           </span>
         </button>

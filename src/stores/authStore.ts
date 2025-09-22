@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, SignUpData, SignInData, ProfileUpdateData } from '@/types';
 import { authUtils } from '@/services/authService';
-import { getSupabaseClient } from '@/services/supabase';
+import { getSupabaseAuthClient } from '@/services/supabase';
 
 interface AuthState {
   user: User | null;
@@ -111,8 +111,8 @@ export const useAuthStore = create<AuthStore>()(
         
         // Limpar localStorage e estado local
         if (typeof window !== 'undefined') {
-          localStorage.removeItem('sb-nmxcqiwslkuvdydlsolm-auth-token');
-          console.log('AuthStore - localStorage limpo');
+          // O Supabase gerencia automaticamente o localStorage
+          console.log('AuthStore - Estado limpo');
         }
         
         set({ 
@@ -134,7 +134,13 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true });
         
         try {
-          const { user, error } = await authUtils.getCurrentUser();
+          // Adicionar timeout para evitar travamento
+          const userPromise = authUtils.getCurrentUser();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout no getCurrentUser')), 10000)
+          );
+          
+          const { user, error } = await Promise.race([userPromise, timeoutPromise]) as { user: unknown, error: unknown };
           
           if (error || !user) {
             console.log('AuthStore - getCurrentUser sem usuário:', error);
@@ -147,9 +153,9 @@ export const useAuthStore = create<AuthStore>()(
             return;
           }
 
-          console.log('AuthStore - getCurrentUser sucesso:', user.fullName);
+          console.log('AuthStore - getCurrentUser sucesso:', (user as { fullName?: string }).fullName);
           set({ 
-            user, 
+            user: user as User, 
             isAuthenticated: true, 
             isLoading: false, 
             error: null 
@@ -217,7 +223,7 @@ export const useAuthStore = create<AuthStore>()(
 
 // Listener para mudanças de autenticação
 if (typeof window !== 'undefined') {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseAuthClient();
   
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && session) {

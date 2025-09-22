@@ -3,28 +3,71 @@ export type SublocationPlus = 'wifi' | 'airConditioning' | 'desk' | 'bathroom' |
 export interface User {
   id: string;
   email: string;
-  fullName: string;
-  cpf: string;
+  userType: 'professional' | 'company';
   phone: string;
-  birthDate: string;
   avatar?: string;
   createdAt: string;
   updatedAt: string;
+  
+  // Campos específicos para profissionais
+  fullName?: string;
+  cpf?: string;
+  birthDate?: string;
+  specialty?: string;
+  registrationCode?: string;
+  
+  // Campos específicos para empresas
+  companyName?: string;
+  tradeName?: string;
+  cnpj?: string;
+  responsibleName?: string;
+  responsibleCpf?: string;
 }
 
 export interface SignUpData {
-  fullName: string;
   email: string;
-  cpf: string;
   phone: string;
   password: string;
-  birthDate: string;
+  userType: 'professional' | 'company';
+  
+  // Para profissionais
+  fullName?: string;
+  cpf?: string;
+  birthDate?: string;
+  specialty?: string;
+  registrationCode?: string;
+  
+  // Para empresas
+  companyName?: string;
+  tradeName?: string;
+  cnpj?: string;
+  responsibleName?: string;
+  responsibleCpf?: string;
 }
 
 export interface SignInData {
   email: string;
   password: string;
 }
+
+// Função utilitária para obter o nome correto do usuário baseado no tipo
+export const getUserDisplayName = (user: User): string => {
+  if (user.userType === 'company') {
+    return user.tradeName || user.companyName || 'Empresa';
+  }
+  return user.fullName || 'Usuário';
+};
+
+// Função utilitária para obter as iniciais do usuário baseado no tipo
+export const getUserInitials = (user: User): string => {
+  const displayName = getUserDisplayName(user);
+  return displayName
+    .split(' ')
+    .map(n => n.charAt(0))
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+};
 
 export interface AuthResponse {
   user: User | null;
@@ -49,11 +92,22 @@ export interface CommentFormData {
 }
 
 export interface ProfileUpdateData {
-  fullName: string;
-  cpf: string;
   phone: string;
-  birthDate: string;
   avatar?: string;
+  
+  // Campos específicos para profissionais
+  fullName?: string;
+  cpf?: string;
+  birthDate?: string;
+  specialty?: string;
+  registrationCode?: string;
+  
+  // Campos específicos para empresas
+  companyName?: string;
+  tradeName?: string;
+  cnpj?: string;
+  responsibleName?: string;
+  responsibleCpf?: string;
 }
 
 export interface Clinic {
@@ -86,4 +140,36 @@ export interface Clinic {
   // Campos adicionais para compatibilidade com a UI
   stamp?: 'new' | 'hot';
   plus?: SublocationPlus[];
+}
+
+export interface Appointment {
+  id: string;
+  clinic_id: string;
+  user_id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM - horário selecionado pelo usuário
+  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  notes?: string;
+  value: number; // Valor do agendamento
+  created_at: string;
+  updated_at: string;
+  clinic_title?: string; // Para exibição
+  users?: {
+    id: string;
+    email: string;
+    userType: 'professional' | 'company';
+    phone: string;
+    fullName?: string;
+    companyName?: string;
+    tradeName?: string;
+  };
+}
+
+export interface AppointmentFilters {
+  date_from?: string;
+  date_to?: string;
+  period?: 'morning' | 'afternoon' | 'evening' | 'all';
+  day_of_week?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'all';
+  status?: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'all';
+  clinic_id?: string;
 }

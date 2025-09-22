@@ -9,7 +9,9 @@ interface InputProps {
   className?: string;
   disabled?: boolean;
   required?: boolean;
-  mask?: 'cpf' | 'phone' | 'currency' | 'cep';
+  mask?: 'cpf' | 'phone' | 'currency' | 'cep' | 'cnpj';
+  validate?: (value: string) => string | null; // Função de validação que retorna erro ou null
+  showValidationError?: boolean; // Se deve mostrar erro de validação em tempo real
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(({ 
@@ -21,9 +23,12 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
   className = "",
   disabled = false,
   required = false,
-  mask
+  mask,
+  validate,
+  showValidationError = false
 }, ref) => {
   const [inputValue, setInputValue] = useState(value || '');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Sincronizar o estado interno com o value prop
   useEffect(() => {
@@ -86,6 +91,21 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
       .replace(/(\d{5})(\d)/, '$1-$2');
   };
 
+  const formatCNPJ = (value: string) => {
+    // Remove tudo que não é dígito
+    const numbers = value.replace(/\D/g, '');
+    
+    // Limita a 14 dígitos
+    const limitedNumbers = numbers.slice(0, 14);
+    
+    // Aplica a máscara do CNPJ
+    return limitedNumbers
+      .replace(/(\d{2})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1/$2')
+      .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+  };
+
   const applyMask = (value: string, maskType?: string) => {
     switch (maskType) {
       case 'cpf':
@@ -96,6 +116,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
         return formatCurrency(value);
       case 'cep':
         return formatCEP(value);
+      case 'cnpj':
+        return formatCNPJ(value);
       default:
         return value;
     }
@@ -103,20 +125,23 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
+    let finalValue = newValue;
     
     // Aplica máscara se especificada
     if (mask) {
-      const formattedValue = applyMask(newValue, mask);
-      setInputValue(formattedValue);
-      onChange?.(formattedValue);
+      finalValue = applyMask(newValue, mask);
     } else if (type === 'text' && label.toLowerCase().includes('valor')) {
       // Fallback para formatação de valores monetários (compatibilidade)
-      const formattedValue = formatCurrency(newValue);
-      setInputValue(formattedValue);
-      onChange?.(formattedValue);
-    } else {
-      setInputValue(newValue);
-      onChange?.(newValue);
+      finalValue = formatCurrency(newValue);
+    }
+    
+    setInputValue(finalValue);
+    onChange?.(finalValue);
+    
+    // Validação em tempo real se habilitada
+    if (showValidationError && validate) {
+      const error = validate(finalValue);
+      setValidationError(error);
     }
   };
 
@@ -137,9 +162,18 @@ const Input = forwardRef<HTMLInputElement, InputProps>(({
           onChange={handleChange}
           placeholder={placeholder}
           disabled={disabled}
-          className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm hover:border-gray-300 transition-colors duration-200 cursor-pointer text-[#333] placeholder-gray-500"
+          className={`w-full bg-white border rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 shadow-sm hover:border-gray-300 transition-colors duration-200 cursor-pointer text-[#333] placeholder-gray-500 ${
+            showValidationError && validationError 
+              ? 'border-red-300 focus:ring-red-500 focus:border-red-500' 
+              : 'border-gray-200 focus:ring-[#2b9af3] focus:border-[#2b9af3]'
+          }`}
         />
       </div>
+      
+      {/* Validation Error Message */}
+      {showValidationError && validationError && (
+        <p className="text-red-500 text-sm mt-1">{validationError}</p>
+      )}
     </div>
   );
 });
