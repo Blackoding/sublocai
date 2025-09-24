@@ -123,8 +123,8 @@ const SublocationCard = ({
       {/* Conteúdo */}
       <div className="p-4">
         {/* Título e Preço */}
-        <div className="flex justify-between items-start mb-2">
-          <h3 className="text-lg font-semibold text-gray-900 flex-1 pr-4">{title}</h3>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start mb-2 gap-1 sm:gap-0">
+          <h3 className="text-lg font-semibold text-gray-900 sm:flex-1 sm:pr-4">{title}</h3>
           <span className="text-xl font-bold text-[#2b9af3]">R$ {price}/hora</span>
         </div>
 

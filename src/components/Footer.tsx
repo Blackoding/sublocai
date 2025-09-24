@@ -106,7 +106,7 @@ const Footer: React.FC = () => {
         <div className="border-t border-gray-700 mt-8 pt-8">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="text-gray-400 text-sm mb-4 md:mb-0">
-              © 2024 Sublease. Todos os direitos reservados.
+              © 2025 Sublease. Todos os direitos reservados.
             </div>
             <div className="flex space-x-6 text-sm">
               <Link href="/politica-privacidade" className="text-gray-400 hover:text-[#2b9af3] transition-colors duration-200">

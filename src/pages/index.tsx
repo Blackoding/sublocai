@@ -312,21 +312,21 @@ export default function Home({ featuredClinics }: HomeProps) {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/sublocar">
+            <Link href="/sublocar" className="w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="lg"
-                className="bg-white text-[#2b9af3] hover:bg-gray-50 border-white"
+                className="w-full bg-white text-[#2b9af3] hover:bg-gray-50 border-white"
               >
                 Buscar Consultórios
               </Button>
             </Link>
             
-            <Link href="/anunciar">
+            <Link href="/anunciar" className="w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="lg"
-                className="bg-transparent text-white border-white hover:bg-white hover:text-[#2b9af3]"
+                className="w-full bg-transparent text-white border-white hover:bg-white hover:text-[#2b9af3]"
               >
                 Anunciar Consultório
               </Button>

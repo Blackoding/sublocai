@@ -296,11 +296,11 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
           </label>
         </div>
 
-        <div className="flex gap-3 pt-4">
+        <div className="flex flex-col sm:flex-row gap-3 pt-4">
           <Button
             type="submit"
             disabled={isSubmitting || !formData.date || formData.selectedTimes.length === 0 || availableTimeSlots.length === 0 || !formData.acceptTerms}
-            className="flex-1"
+            className="flex-1 order-1 sm:order-1"
           >
             {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento'}
           </Button>
@@ -309,6 +309,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
             variant="outline"
             onClick={onClose}
             disabled={isSubmitting}
+            className="order-2 sm:order-2"
           >
             Cancelar
           </Button>
