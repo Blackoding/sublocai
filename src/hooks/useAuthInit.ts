@@ -7,16 +7,13 @@ export const useAuthInit = () => {
   useEffect(() => {
     // Só tenta carregar o usuário se estivermos no cliente
     if (typeof window !== 'undefined') {
-      // Se já temos um usuário persistido, não precisa buscar novamente
-      if (user && isAuthenticated) {
-        console.log('useAuthInit - Usuário já persistido:', user.fullName);
-        return;
-      }
-
-      console.log('useAuthInit - Buscando usuário...');
+      console.log('useAuthInit - Iniciando verificação de autenticação...');
+      console.log('useAuthInit - Estado atual:', { user: !!user, isAuthenticated });
+      
+      // Sempre tenta buscar o usuário atual para sincronizar com o Supabase
       getCurrentUser().catch((error) => {
-        console.warn('Failed to get current user:', error);
+        console.warn('useAuthInit - Failed to get current user:', error);
       });
     }
-  }, [user, isAuthenticated]); // Removido getCurrentUser das dependências
+  }, []); // Executa apenas uma vez na montagem do componente
 };

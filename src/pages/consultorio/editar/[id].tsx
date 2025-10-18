@@ -36,6 +36,8 @@ interface Consultorio {
   specialties: string[]; // New field
   google_maps_url?: string; // URL do Google Maps
   availability?: { id: string; day: string; startTime: string; endTime: string }[]; // Horários de disponibilidade
+  hasappointment?: boolean; // Campo do banco (minúsculo) - Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
+  hasAppointment?: boolean; // Campo mapeado (camelCase) - Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
   status: 'pending' | 'active' | 'inactive';
   views: number;
   bookings: number;
@@ -79,7 +81,10 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     specialties: [] as string[],
     
     // Availability
-    availability: [] as { id: string; day: string; startTime: string; endTime: string }[]
+    availability: [] as { id: string; day: string; startTime: string; endTime: string }[],
+    
+    // Configuração de agendamento
+    hasAppointment: true // Por padrão, permite agendamento na plataforma
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -174,7 +179,8 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
         images: existingImages,
         features: consultorio.features || [],
         specialties: consultorio.specialties || [],
-        availability: cleanAvailability
+        availability: cleanAvailability,
+        hasAppointment: consultorio.hasappointment !== undefined ? consultorio.hasappointment : true
       };
 
       setFormData(formDataToSet);
@@ -461,6 +467,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
         specialties: formData.specialties, // New field
         features: formData.features,
         availability: formData.availability, // Horários de disponibilidade
+        hasappointment: formData.hasAppointment, // Configuração de agendamento (campo no banco é minúsculo)
         images: formData.images.map(img => img.preview),
         status: consultorio.status // Manter o status atual
       };
@@ -881,6 +888,25 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                 </div>
               </div>
 
+              {/* Section: Configuração de Agendamento */}
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 mb-6">Configuração de Agendamento</h2>
+                <div className="bg-gray-50 p-6 rounded-lg">
+                  <Checkbox
+                    label="Dispensar agendamentos na plataforma. Receber solicitações via WhatsApp"
+                    checked={!formData.hasAppointment}
+                    onChange={(checked) => setFormData(prev => ({ ...prev, hasAppointment: !checked }))}
+                    value="hasAppointment"
+                  />
+                  <p className="text-sm text-gray-600 mt-2">
+                    {formData.hasAppointment 
+                      ? "Os clientes poderão agendar diretamente na plataforma através do sistema de agendamento."
+                      : "Os clientes serão redirecionados para o WhatsApp para solicitar agendamentos."
+                    }
+                  </p>
+                </div>
+              </div>
+
               {/* Section: Availability */}
               <div className="relative z-30">
                 <div className="flex items-center justify-between mb-6">
@@ -1078,7 +1104,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       ...clinic,
       features: clinic.features || [],
       specialties: clinic.specialties || [],
-      availability: clinic.availability || []
+      availability: clinic.availability || [],
+      // Mapear explicitamente o campo hasAppointment (vem como hasappointment do banco)
+      hasAppointment: clinic.hasappointment !== undefined ? clinic.hasappointment : true
     };
 
     console.log('🔍 getServerSideProps - Consultorio object:', consultorio);

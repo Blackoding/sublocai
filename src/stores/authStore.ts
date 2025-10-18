@@ -134,13 +134,37 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true });
         
         try {
-          // Adicionar timeout para evitar travamento
-          const userPromise = authUtils.getCurrentUser();
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout no getCurrentUser')), 10000)
-          );
+          const supabase = getSupabaseAuthClient();
           
-          const { user, error } = await Promise.race([userPromise, timeoutPromise]) as { user: unknown, error: unknown };
+          // Primeiro, verificar se há uma sessão ativa
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          
+          if (sessionError) {
+            console.log('AuthStore - Erro ao obter sessão:', sessionError);
+            set({ 
+              user: null, 
+              isAuthenticated: false, 
+              isLoading: false, 
+              error: null 
+            });
+            return;
+          }
+          
+          if (!session) {
+            console.log('AuthStore - Nenhuma sessão ativa');
+            set({ 
+              user: null, 
+              isAuthenticated: false, 
+              isLoading: false, 
+              error: null 
+            });
+            return;
+          }
+          
+          console.log('AuthStore - Sessão encontrada, buscando dados do usuário...');
+          
+          // Se há sessão, buscar dados do usuário
+          const { user, error } = await authUtils.getCurrentUser();
           
           if (error || !user) {
             console.log('AuthStore - getCurrentUser sem usuário:', error);
@@ -225,13 +249,26 @@ export const useAuthStore = create<AuthStore>()(
 if (typeof window !== 'undefined') {
   const supabase = getSupabaseAuthClient();
   
-  supabase.auth.onAuthStateChange((event, session) => {
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('AuthStore - Auth state change:', event, !!session);
+    
     if (event === 'SIGNED_IN' && session) {
-      // O getCurrentUser será chamado pelo useAuthInit
+      console.log('AuthStore - Usuário logado, buscando dados...');
+      // Buscar dados do usuário quando logar
+      const { getCurrentUser } = useAuthStore.getState();
+      await getCurrentUser();
     } else if (event === 'SIGNED_OUT') {
+      console.log('AuthStore - Usuário deslogado');
       useAuthStore.getState().signOut();
     } else if (event === 'TOKEN_REFRESHED' && session) {
+      console.log('AuthStore - Token renovado');
       // Token foi renovado, mas o usuário ainda está logado
+      // Não precisa fazer nada, o estado já está correto
+    } else if (event === 'INITIAL_SESSION' && session) {
+      console.log('AuthStore - Sessão inicial detectada');
+      // Sessão inicial detectada ao carregar a página
+      const { getCurrentUser } = useAuthStore.getState();
+      await getCurrentUser();
     }
   });
 }

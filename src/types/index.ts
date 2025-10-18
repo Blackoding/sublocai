@@ -130,6 +130,7 @@ export interface Clinic {
   features: string[];
   google_maps_url?: string; // URL do Google Maps
   availability?: { id: string; day: string; startTime: string; endTime: string }[]; // Horários de disponibilidade
+  hasAppointment?: boolean; // Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
   status?: 'pending' | 'active' | 'inactive';
   views?: number;
   bookings?: number;

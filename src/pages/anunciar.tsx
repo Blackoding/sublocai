@@ -45,7 +45,10 @@ const AnunciarPage = () => {
     specialties: [] as string[],
     
     // Disponibilidade
-    availability: [] as { id: string; day: string; startTime: string; endTime: string }[]
+    availability: [] as { id: string; day: string; startTime: string; endTime: string }[],
+    
+    // Configuração de agendamento
+    hasAppointment: true // Por padrão, permite agendamento na plataforma
   });
   
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -289,6 +292,30 @@ const AnunciarPage = () => {
       
       if (incompleteAvailability) {
         newErrors.availability = 'Todos os campos de disponibilidade devem ser preenchidos (dia, hora inicial e hora final)';
+      } else {
+        // Validar formato dos horários
+        const invalidTimeFormat = formData.availability.find(item => {
+          // Verificar se o horário tem formato HH:MM válido
+          const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+          return !timeRegex.test(item.startTime) || !timeRegex.test(item.endTime);
+        });
+        
+        if (invalidTimeFormat) {
+          newErrors.availability = 'Os horários devem estar no formato HH:MM (ex: 13:00, 09:30)';
+        } else {
+          // Validar se hora final é maior que hora inicial
+          const invalidTimeOrder = formData.availability.find(item => {
+            const startTime = item.startTime.split(':').map(Number);
+            const endTime = item.endTime.split(':').map(Number);
+            const startMinutes = startTime[0] * 60 + startTime[1];
+            const endMinutes = endTime[0] * 60 + endTime[1];
+            return endMinutes <= startMinutes;
+          });
+          
+          if (invalidTimeOrder) {
+            newErrors.availability = 'A hora final deve ser maior que a hora inicial';
+          }
+        }
       }
     }
 
@@ -386,6 +413,7 @@ const AnunciarPage = () => {
         features: formData.plus, // Selected amenities
         google_maps_url: formData.googleMapsUrl, // URL do Google Maps
         availability: formData.availability, // Horários de disponibilidade
+        hasappointment: formData.hasAppointment, // Configuração de agendamento (campo no banco é minúsculo)
         status: 'pending' as const
       };
 
@@ -895,6 +923,25 @@ const AnunciarPage = () => {
                     </Link>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Seção: Configuração de Agendamento */}
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-6">Configuração de Agendamento</h2>
+              <div className="bg-gray-50 p-6 rounded-lg">
+                <Checkbox
+                  label="Dispensar agendamentos na plataforma. Receber solicitações via WhatsApp"
+                  checked={!formData.hasAppointment}
+                  onChange={(checked) => setFormData(prev => ({ ...prev, hasAppointment: !checked }))}
+                  value="hasAppointment"
+                />
+                <p className="text-sm text-gray-600 mt-2">
+                  {formData.hasAppointment 
+                    ? "Os clientes poderão agendar diretamente na plataforma através do sistema de agendamento."
+                    : "Os clientes serão redirecionados para o WhatsApp para solicitar agendamentos."
+                  }
+                </p>
               </div>
             </div>
 

@@ -684,54 +684,58 @@ export const authUtils = {
       console.log('authService.getCurrentUser - Iniciando...');
       const supabase = getSupabaseAuthClient();
       
-      // Adicionar timeout para evitar travamento
-      const userPromise = supabase.auth.getUser();
-      const userTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout ao obter usuário')), 5000)
-      );
+      // Primeiro, verificar se há uma sessão ativa
+      console.log('authService.getCurrentUser - Verificando sessão...');
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      const { data: { user: authUser }, error: authError } = await Promise.race([userPromise, userTimeoutPromise]) as { data: { user: unknown }, error: unknown };
-
-      console.log('authService.getCurrentUser - Auth user:', !!authUser);
-      console.log('authService.getCurrentUser - Auth error:', authError);
-
-      if (authError || !authUser) {
-        console.log('authService.getCurrentUser - Nenhum usuário autenticado');
-        return { user: null, error: null }; // Não é um erro, apenas não há usuário logado
+      if (sessionError) {
+        console.log('authService.getCurrentUser - Erro ao obter sessão:', sessionError);
+        return { user: null, error: sessionError.message };
       }
-
-      // Get user profile from database using fetch direto
-      console.log('authService.getCurrentUser - Buscando perfil do usuário...');
       
-      // Adicionar timeout para evitar travamento
-      const authUserData = authUser as { id: string; access_token?: string };
-      const profilePromise = fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${authUserData.id}&select=*`, {
+      if (!session) {
+        console.log('authService.getCurrentUser - Nenhuma sessão ativa');
+        return { user: null, error: null };
+      }
+      
+      console.log('authService.getCurrentUser - Sessão encontrada, ID do usuário:', session.user.id);
+      
+      // Usar o ID da sessão para buscar o perfil
+      const profilePromise = fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${session.user.id}&select=*`, {
         method: 'GET',
         headers: {
           'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${authUserData.access_token || ''}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
         }
       });
       
       const profileTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout ao buscar perfil')), 5000)
+        setTimeout(() => reject(new Error('Timeout ao buscar perfil')), 10000)
       );
       
+      console.log('authService.getCurrentUser - Fazendo requisição para buscar perfil...');
       const profileResponse = await Promise.race([profilePromise, profileTimeoutPromise]) as Response;
 
       console.log('authService.getCurrentUser - Status da resposta do perfil:', profileResponse.status);
 
       if (!profileResponse.ok) {
+        const errorText = await profileResponse.text();
+        console.log('authService.getCurrentUser - Erro na resposta:', errorText);
         return { user: null, error: 'Failed to load user profile' };
       }
 
       const profileDataArray = await profileResponse.json();
+      console.log('authService.getCurrentUser - Dados do perfil recebidos:', profileDataArray.length, 'registros');
+      
       const profileData = profileDataArray[0];
 
       if (!profileData) {
+        console.log('authService.getCurrentUser - Perfil não encontrado no banco de dados');
         return { user: null, error: 'User profile not found' };
       }
+
+      console.log('authService.getCurrentUser - Perfil encontrado:', profileData.email);
 
       const user: User = {
         id: profileData.id,
@@ -755,8 +759,10 @@ export const authUtils = {
         responsibleCpf: profileData.responsible_cpf,
       };
 
+      console.log('authService.getCurrentUser - Usuário criado com sucesso:', user.fullName);
       return { user, error: null };
     } catch (error) {
+      console.log('authService.getCurrentUser - Erro capturado:', error);
       return { 
         user: null, 
         error: error instanceof Error ? error.message : 'An unexpected error occurred'

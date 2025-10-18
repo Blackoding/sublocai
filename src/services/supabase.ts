@@ -75,7 +75,8 @@ export const getSupabaseAuthClient = (): SupabaseClient => {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: false
+        detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined
       }
     })
   }
