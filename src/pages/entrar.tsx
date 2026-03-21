@@ -74,6 +74,28 @@ const EntrarPage = () => {
       });
 
       if (success) {
+        const { user } = useAuthStore.getState();
+        if (user?.id && user.userType === 'company' && (user.planEmpresa === 'basic' || user.planEmpresa === 'pro')) {
+          const subscriptionResponse = await fetch('/api/subscription/status', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userId: user.id })
+          });
+          const subscriptionJson = (await subscriptionResponse.json()) as {
+            data?: {
+              showWarning: boolean;
+              paymentPlan: 'basic' | 'pro';
+            };
+          };
+
+          if (subscriptionJson.data?.showWarning) {
+            router.push(`/assinatura?plan=${subscriptionJson.data.paymentPlan}`);
+            return;
+          }
+        }
+
         // Login bem-sucedido
         // Verificar se há parâmetro de redirecionamento
         const redirectTo = router.query.redirect as string;

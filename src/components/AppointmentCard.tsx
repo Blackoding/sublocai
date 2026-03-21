@@ -1,16 +1,22 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { Appointment } from '@/types';
 import Button from '@/components/Button';
 
 interface AppointmentCardProps {
   appointment: Appointment;
   onUpdateStatus?: (appointmentId: string, newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed') => void;
+  viewerUserType?: 'professional' | 'company';
 }
 
 const AppointmentCard: React.FC<AppointmentCardProps> = ({
   appointment,
-  onUpdateStatus
+  onUpdateStatus,
+  viewerUserType
 }) => {
+  const router = useRouter();
+  const [isDownloadingReceipt, setIsDownloadingReceipt] = useState(false);
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
@@ -106,33 +112,355 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({
     return appointment.users.userType === 'company' ? 'Empresa' : 'Profissional';
   };
 
-  const formatPhoneForWhatsApp = (phone: string) => {
-    // Remove todos os caracteres não numéricos
-    const cleanPhone = phone.replace(/\D/g, '');
-    
-    // Se começar com 55 (Brasil), mantém
-    if (cleanPhone.startsWith('55')) {
-      return cleanPhone;
+  const getMainTitle = () => {
+    if (viewerUserType === 'professional') {
+      return appointment.clinic_company_name || appointment.clinic_title || 'Consultório';
     }
-    
-    // Se começar com 0, remove o 0 e adiciona 55
-    if (cleanPhone.startsWith('0')) {
-      return '55' + cleanPhone.substring(1);
-    }
-    
-    // Se não começar com 55, adiciona 55
-    return '55' + cleanPhone;
+    return getUserDisplayName();
   };
 
-  const openWhatsApp = () => {
-    if (!appointment.users?.phone) return;
-    
-    const formattedPhone = formatPhoneForWhatsApp(appointment.users.phone);
-    const message = `Olá! Vi seu agendamento para ${formatDate(appointment.date)} às ${formatTime(appointment.time)}. Como posso ajudar?`;
-    const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
-    
-    window.open(whatsappUrl, '_blank');
+  const getSubtitle = () => {
+    if (viewerUserType === 'professional') {
+      return `${appointment.clinic_title || 'Sala'} • Agendamento #${appointment.id.substring(0, 8)}`;
+    }
+    return `${getUserTypeText()} • Agendamento #${appointment.id.substring(0, 8)}`;
   };
+
+  const getAppointmentDateStart = (): Date | null => {
+    if (!appointment.date || !appointment.date.match(/^\d{4}-\d{2}-\d{2}$/)) return null;
+    const [year, month, day] = appointment.date.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const canProfessionalCancel = (): boolean => {
+    const appointmentDate = getAppointmentDateStart();
+    if (!appointmentDate) return false;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return appointmentDate > todayStart;
+  };
+
+  const hasAppointmentDateTimePassed = (): boolean => {
+    if (!appointment.date || !appointment.time) return false;
+    if (!appointment.date.match(/^\d{4}-\d{2}-\d{2}$/)) return false;
+    const [year, month, day] = appointment.date.split('-').map(Number);
+    const [hour, minute] = appointment.time.split(':').map(Number);
+    if (
+      Number.isNaN(year) ||
+      Number.isNaN(month) ||
+      Number.isNaN(day) ||
+      Number.isNaN(hour) ||
+      Number.isNaN(minute)
+    ) {
+      return false;
+    }
+    const appointmentDateTime = new Date(year, month - 1, day, hour, minute, 0, 0);
+    return appointmentDateTime.getTime() <= Date.now();
+  };
+
+  const isProfessionalViewer = viewerUserType === 'professional';
+  const clinicHref = appointment.clinic_id ? `/consultorio/${appointment.clinic_id}` : '';
+  const showConfirmButton = !isProfessionalViewer && appointment.status === 'pending';
+  const showCancelButton = isProfessionalViewer
+    ? (appointment.status === 'pending' || appointment.status === 'confirmed') && canProfessionalCancel()
+    : appointment.status === 'pending';
+  const showCompleteButton = isProfessionalViewer &&
+    appointment.status === 'confirmed' &&
+    hasAppointmentDateTimePassed();
+
+  const openChat = () => {
+    const draftMessage = `Olá! Sobre o agendamento de ${formatDate(appointment.date)} às ${formatTime(appointment.time)}${appointment.clinic_title ? ` no consultório ${appointment.clinic_title}` : ''}.`;
+    router.push({
+      pathname: '/chat',
+      query: {
+        appointmentId: appointment.id,
+        draft: draftMessage
+      }
+    });
+  };
+
+  const formatCurrency = (value: number): string => {
+    return value.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    });
+  };
+
+  const getReceiptStatusText = (status: Appointment['status']): string => {
+    if (status === 'confirmed') return 'Agendamento confirmado';
+    if (status === 'completed') return 'Agendamento concluído';
+    if (status === 'pending') return 'Agendamento pendente';
+    return 'Agendamento cancelado';
+  };
+
+  const getReceiptMainName = (): string => {
+    return getMainTitle();
+  };
+
+  const getReceiptFavorecidoName = (): string => {
+    return appointment.clinic_company_name || 'Não informado';
+  };
+
+  const getReceiptFavorecidoCnpj = (): string => {
+    return appointment.clinic_cnpj || 'Não informado';
+  };
+
+  const getReceiptFavorecidoAddress = (): string => {
+    return appointment.clinic_address || 'Não informado';
+  };
+
+  const getReceiptInlineText = (value: string, maxLength: number): string => {
+    if (value.length <= maxLength) return value;
+    return `${value.slice(0, maxLength - 3)}...`;
+  };
+
+  const fetchCompanyDetailsByClinic = async (): Promise<{
+    companyName: string;
+    cnpj: string;
+    address: string;
+  } | null> => {
+    if (!appointment.clinic_id) return null;
+    const response = await fetch('/api/clinics/company-details', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ clinicId: appointment.clinic_id })
+    });
+
+    if (!response.ok) return null;
+    const json = (await response.json()) as {
+      data?: {
+        companyName?: string;
+        cnpj?: string;
+        address?: string;
+      };
+    };
+
+    if (!json.data) return null;
+    return {
+      companyName: json.data.companyName || '',
+      cnpj: json.data.cnpj || '',
+      address: json.data.address || ''
+    };
+  };
+
+  const drawRoundedRect = (
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number
+  ) => {
+    context.beginPath();
+    context.moveTo(x + radius, y);
+    context.lineTo(x + width - radius, y);
+    context.quadraticCurveTo(x + width, y, x + width, y + radius);
+    context.lineTo(x + width, y + height - radius);
+    context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    context.lineTo(x + radius, y + height);
+    context.quadraticCurveTo(x, y + height, x, y + height - radius);
+    context.lineTo(x, y + radius);
+    context.quadraticCurveTo(x, y, x + radius, y);
+    context.closePath();
+  };
+
+  const downloadReceipt = useCallback(async () => {
+    if (typeof window === 'undefined' || isDownloadingReceipt) return;
+    setIsDownloadingReceipt(true);
+
+    try {
+      const companyDetails =
+        !appointment.clinic_company_name || !appointment.clinic_cnpj || !appointment.clinic_address
+          ? await fetchCompanyDetailsByClinic()
+          : null;
+      const receiptFavorecidoName =
+        appointment.clinic_company_name || companyDetails?.companyName || 'Não informado';
+      const receiptFavorecidoCnpj =
+        appointment.clinic_cnpj || companyDetails?.cnpj || 'Não informado';
+      const receiptFavorecidoAddress =
+        appointment.clinic_address || companyDetails?.address || 'Não informado';
+
+      const width = 1080;
+      const height = 1920;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        setIsDownloadingReceipt(false);
+        return;
+      }
+
+      context.fillStyle = '#f4f7fb';
+      context.fillRect(0, 0, width, height);
+
+      const cardX = 72;
+      const cardY = 150;
+      const cardWidth = width - 144;
+      const cardHeight = 1580;
+
+      context.fillStyle = '#ffffff';
+      drawRoundedRect(context, cardX, cardY, cardWidth, cardHeight, 34);
+      context.fill();
+
+      context.fillStyle = '#2b9af3';
+      drawRoundedRect(context, cardX, cardY, cardWidth, 180, 34);
+      context.fill();
+      context.fillRect(cardX, cardY + 140, cardWidth, 40);
+
+      context.fillStyle = '#ffffff';
+      context.font = 'bold 46px Arial, sans-serif';
+      context.textAlign = 'left';
+      context.fillText('Comprovante de Agendamento', cardX + 48, cardY + 78);
+
+      context.font = '28px Arial, sans-serif';
+      context.fillStyle = '#dff0ff';
+      context.fillText('Sublease', cardX + 48, cardY + 126);
+
+      const lineX = cardX + 48;
+      const lineWidth = cardWidth - 96;
+      let currentY = cardY + 278;
+
+      const writeLine = (
+        label: string,
+        value: string,
+        isHighlight = false,
+        highlightColor: string = '#111827'
+      ) => {
+        context.fillStyle = '#6b7280';
+        context.font = '28px Arial, sans-serif';
+        context.fillText(label, lineX, currentY);
+        context.fillStyle = isHighlight ? highlightColor : '#1f2937';
+        context.font = isHighlight ? 'bold 54px Arial, sans-serif' : 'bold 34px Arial, sans-serif';
+        context.textAlign = 'right';
+        context.fillText(value, lineX + lineWidth, currentY);
+        context.textAlign = 'left';
+        currentY += isHighlight ? 108 : 86;
+      };
+
+      const getWrappedLines = (
+        text: string,
+        maxWidth: number,
+        font: string,
+        maxLines: number
+      ): string[] => {
+        context.font = font;
+        const words = text.split(' ').filter(Boolean);
+        const lines: string[] = [];
+        let currentLine = '';
+
+        for (const word of words) {
+          const candidate = currentLine ? `${currentLine} ${word}` : word;
+          if (context.measureText(candidate).width <= maxWidth) {
+            currentLine = candidate;
+            continue;
+          }
+
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+          if (lines.length === maxLines - 1) break;
+        }
+
+        if (currentLine && lines.length < maxLines) {
+          lines.push(currentLine);
+        }
+
+        if (lines.length === 0) return [text];
+
+        const consumedWords = lines.join(' ').split(' ').length;
+        if (consumedWords < words.length) {
+          const lastIndex = lines.length - 1;
+          let lastLine = lines[lastIndex];
+          while (context.measureText(`${lastLine}...`).width > maxWidth && lastLine.length > 0) {
+            lastLine = lastLine.slice(0, -1).trimEnd();
+          }
+          lines[lastIndex] = `${lastLine}...`;
+        }
+
+        return lines;
+      };
+
+      const writeMultilineRightValue = (label: string, value: string, maxLines = 2) => {
+        context.fillStyle = '#6b7280';
+        context.font = '28px Arial, sans-serif';
+        context.fillText(label, lineX, currentY);
+
+        const valueFont = 'bold 34px Arial, sans-serif';
+        const valueColumnX = lineX + lineWidth * 0.50;
+        const maxValueWidth = lineX + lineWidth - valueColumnX;
+        const lines = getWrappedLines(value, maxValueWidth, valueFont, maxLines);
+        const lineHeight = 42;
+        const startY = currentY - (lines.length - 1) * (lineHeight / 2);
+
+        context.fillStyle = '#1f2937';
+        context.font = valueFont;
+        context.textAlign = 'right';
+        lines.forEach((line, index) => {
+          context.fillText(line, lineX + lineWidth, startY + index * lineHeight);
+        });
+        context.textAlign = 'left';
+        currentY += 86 + (lines.length - 1) * 46;
+      };
+
+      writeLine('Valor', formatCurrency(appointment.value), true);
+      writeLine('Data', `${formatDate(appointment.date)} (${getDayOfWeek(appointment.date)})`);
+      writeLine('Horário', formatTime(appointment.time));
+      writeLine('Sala', appointment.clinic_title || 'Não informada');
+      writeLine('CNPJ favorecido', receiptFavorecidoCnpj);
+      writeMultilineRightValue('Nome favorecido', receiptFavorecidoName);
+      writeMultilineRightValue('Endereço favorecido', receiptFavorecidoAddress, 3);
+      writeLine('ID da transação', `SUB-${appointment.id.substring(0, 8).toUpperCase()}`);
+
+      context.fillStyle = '#6b7280';
+      context.font = '28px Arial, sans-serif';
+      context.fillText('Status', lineX, currentY);
+
+      const statusText = getReceiptStatusText(appointment.status);
+      context.font = 'bold 26px Arial, sans-serif';
+      const statusMetrics = context.measureText(statusText);
+      const badgeWidth = Math.max(220, statusMetrics.width + 56);
+      const badgeHeight = 54;
+      const badgeX = lineX + lineWidth - badgeWidth;
+      const badgeY = currentY - 36;
+
+      context.fillStyle = '#dcfce7';
+      drawRoundedRect(context, badgeX, badgeY, badgeWidth, badgeHeight, 22);
+      context.fill();
+
+      context.fillStyle = '#15803d';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(statusText, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
+      context.textAlign = 'left';
+      context.textBaseline = 'alphabetic';
+      currentY += 86;
+
+      context.strokeStyle = '#e5e7eb';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(lineX, currentY + 12);
+      context.lineTo(lineX + lineWidth, currentY + 12);
+      context.stroke();
+
+      currentY += 84;
+
+      context.fillStyle = '#9ca3af';
+      context.font = '24px Arial, sans-serif';
+      context.textAlign = 'center';
+      context.fillText('Comprovante emitido por Sublease', width / 2, height - 84);
+
+      const safeDate = appointment.date.replace(/-/g, '');
+      const link = document.createElement('a');
+      link.download = `comprovante-agendamento-${appointment.id.substring(0, 8)}-${safeDate}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } finally {
+      setIsDownloadingReceipt(false);
+    }
+  }, [appointment, isDownloadingReceipt]);
 
   return (
     <div className="p-6">
@@ -140,12 +468,27 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-2">
             <div>
-              <h3 className="text-lg font-medium text-gray-900">
-                {getUserDisplayName()}
-              </h3>
-              <p className="text-sm text-gray-500">
-                {getUserTypeText()} • Agendamento #{appointment.id.substring(0, 8)}
-              </p>
+              {isProfessionalViewer && clinicHref ? (
+                <>
+                  <Link href={clinicHref} className="text-lg font-medium text-gray-900 hover:text-[#2b9af3] transition-colors">
+                    {getMainTitle()}
+                  </Link>
+                  <p className="text-sm text-gray-500">
+                    <Link href={clinicHref} className="hover:text-[#2b9af3] transition-colors">
+                      {getSubtitle()}
+                    </Link>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-medium text-gray-900">
+                    {getMainTitle()}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {getSubtitle()}
+                  </p>
+                </>
+              )}
             </div>
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
               {getStatusText(appointment.status)}
@@ -174,40 +517,48 @@ const AppointmentCard: React.FC<AppointmentCardProps> = ({
         
         <div className="mt-4 lg:mt-0 lg:ml-6">
           <div className="flex flex-wrap gap-2">
-            {/* Botão WhatsApp - sempre visível se houver telefone */}
-            {appointment.users?.phone && (
+            <Button
+              size="sm"
+              onClick={openChat}
+              className="bg-[#2b9af3] hover:bg-[#1e7ce6] text-white border-[#2b9af3] hover:border-[#1e7ce6]"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h8M8 14h5m8 6-3.464-1.732A9.953 9.953 0 0112 19c-4.97 0-9-3.582-9-8s4.03-8 9-8 9 3.582 9 8a7.948 7.948 0 01-2.138 5.357L21 20z" />
+              </svg>
+              Enviar Mensagem
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadReceipt}
+              disabled={isDownloadingReceipt}
+              className="text-[#2b9af3] border-[#2b9af3]"
+            >
+              {isDownloadingReceipt ? 'Gerando...' : 'Baixar Comprovante'}
+            </Button>
+            
+            {showConfirmButton && (
               <Button
                 size="sm"
-                onClick={openWhatsApp}
-                className="bg-green-600 hover:bg-green-700 text-white border-green-600 hover:border-green-700"
+                onClick={() => onUpdateStatus?.(appointment.id, 'confirmed')}
               >
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                </svg>
-                WhatsApp
+                Confirmar
               </Button>
             )}
-            
-            {appointment.status === 'pending' && (
-              <>
-                <Button
-                  size="sm"
-                  onClick={() => onUpdateStatus?.(appointment.id, 'confirmed')}
-                >
-                  Confirmar
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onUpdateStatus?.(appointment.id, 'cancelled')}
-                  className="text-red-600 hover:text-red-700 hover:border-red-300"
-                >
-                  Cancelar
-                </Button>
-              </>
+
+            {showCancelButton && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onUpdateStatus?.(appointment.id, 'cancelled')}
+                className="text-red-600 hover:text-red-700 hover:border-red-300"
+              >
+                Cancelar
+              </Button>
             )}
-            
-            {appointment.status === 'confirmed' && (
+
+            {showCompleteButton && (
               <Button
                 size="sm"
                 onClick={() => onUpdateStatus?.(appointment.id, 'completed')}

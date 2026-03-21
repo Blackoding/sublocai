@@ -1,21 +1,17 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { AppointmentFilters } from '@/types';
-import { useAuthStore } from '@/stores/authStore';
-import { useAppointments } from '@/hooks/useAppointments';
+import { Appointment, AppointmentFilters } from '@/types';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
 import Select from '@/components/Select';
-import Loading from '@/components/Loading';
 import { BackButton } from '@/components/BackButton';
 
 const AppointmentsPage = () => {
   const router = useRouter();
   const { id } = router.query;
-  const { user, isLoading: authLoading, isAuthenticated } = useAuthStore();
   
   // Filtros
   const [filters, setFilters] = useState<AppointmentFilters>({
@@ -26,15 +22,23 @@ const AppointmentsPage = () => {
     status: 'all'
   });
 
-  // Hook para gerenciar agendamentos
-  const { 
-    appointments, 
-    loading, 
-    error, 
-    stats, 
-    loadAppointments, 
-    updateAppointmentStatus 
-  } = useAppointments(id as string, filters);
+  const appointments: Appointment[] = [];
+  const loading = false;
+  const error: string | null = null;
+  const stats = {
+    total: 0,
+    pending: 0,
+    confirmed: 0,
+    cancelled: 0,
+    completed: 0
+  };
+  const loadAppointments = () => {};
+  const updateAppointmentStatus = (
+    _appointmentId: string,
+    _newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+  ): void => {
+    return;
+  };
 
   // Aplicar filtros
   const applyFilters = () => {
@@ -51,18 +55,6 @@ const AppointmentsPage = () => {
       status: 'all'
     });
   };
-
-  // Verificar autenticação
-  if (authLoading) {
-    return <Loading />;
-  }
-
-  if (!isAuthenticated || !user) {
-    if (typeof window !== 'undefined') {
-      router.push('/entrar');
-    }
-    return null;
-  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -260,7 +252,7 @@ const AppointmentsPage = () => {
 
               {loading ? (
                 <div className="p-8 text-center">
-                  <Loading />
+                  <div className="animate-pulse bg-gray-100 h-10 w-32 rounded mx-auto"></div>
                 </div>
               ) : error ? (
                 <div className="p-8 text-center">

@@ -6,10 +6,19 @@ import Button from './Button';
 import Icon from './Icon';
 import { useAuthStore } from '@/stores/authStore';
 import { getUserDisplayName, getUserInitials } from '@/types';
+import { AppointmentService } from '@/services/appointmentService';
+import { ChatService } from '@/services/chatService';
 
 const Header: React.FC = () => {
   const router = useRouter();
   const { isAuthenticated, user, isLoading, signOut } = useAuthStore();
+  const isCompanyUser = isAuthenticated && user?.userType === 'company';
+  const isProfessionalUser = isAuthenticated && user?.userType === 'professional';
+  const showSublocarLink = !isAuthenticated || isProfessionalUser;
+  const hasAuthenticatedUser = isAuthenticated && !!user;
+  const showDashboardLink = hasAuthenticatedUser;
+  const showAppointmentsLink = hasAuthenticatedUser;
+  const showChatLink = hasAuthenticatedUser;
   
   // Debug logs
   useEffect(() => {
@@ -20,6 +29,15 @@ const Header: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [pendingAppointmentsCount, setPendingAppointmentsCount] = useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+  const [subscriptionWarning, setSubscriptionWarning] = useState<{
+    showWarning: boolean;
+    message: string | null;
+    paymentPlan: 'basic' | 'pro';
+    paidUntil: string | null;
+    overdueDays: number | null;
+  } | null>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -30,6 +48,103 @@ const Header: React.FC = () => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    const loadPendingAppointments = async () => {
+      if (!isAuthenticated || !user?.id || user.userType !== 'company') {
+        setPendingAppointmentsCount(0);
+        return;
+      }
+
+      const result = await AppointmentService.getAllUserAppointments(user.id);
+      const appointments = result.data || [];
+      setPendingAppointmentsCount(
+        appointments.filter((appointment) => appointment.status === 'pending').length
+      );
+    };
+
+    loadPendingAppointments();
+  }, [isAuthenticated, user?.id, user?.userType, router.pathname]);
+
+  useEffect(() => {
+    let intervalId: number | null = null;
+
+    const loadUnreadMessages = async () => {
+      if (!isAuthenticated || !user?.id) {
+        setUnreadMessagesCount(0);
+        return;
+      }
+
+      const result = await ChatService.getThreads(user.id);
+      if (result.error || !result.data) {
+        setUnreadMessagesCount(0);
+        return;
+      }
+
+      const unreadTotal = result.data.reduce((sum, thread) => sum + (thread.unreadCount || 0), 0);
+      setUnreadMessagesCount(unreadTotal);
+    };
+
+    loadUnreadMessages();
+    intervalId = window.setInterval(loadUnreadMessages, 5000);
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, [isAuthenticated, user?.id, router.pathname]);
+
+  useEffect(() => {
+    if (!isCompanyUser || !user?.id) {
+      setSubscriptionWarning(null);
+      return;
+    }
+
+    let intervalId: number | null = null;
+
+    const loadSubscriptionWarning = async () => {
+      const response = await fetch('/api/subscription/status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId: user.id })
+      });
+
+      const json = (await response.json()) as
+        | {
+            data?: {
+              showWarning: boolean;
+              message: string | null;
+              paymentPlan: 'basic' | 'pro';
+              paidUntil: string | null;
+              overdueDays: number | null;
+            };
+            error?: string;
+          }
+        | { error: string };
+
+      if (!response.ok || !json || !('data' in json)) {
+        setSubscriptionWarning(null);
+        return;
+      }
+
+      if (json.data?.showWarning) {
+        setSubscriptionWarning(json.data);
+        return;
+      }
+
+      setSubscriptionWarning(null);
+    };
+
+    loadSubscriptionWarning().catch(() => setSubscriptionWarning(null));
+    intervalId = window.setInterval(() => {
+      loadSubscriptionWarning().catch(() => setSubscriptionWarning(null));
+    }, 60000);
+
+    return () => {
+      if (intervalId) window.clearInterval(intervalId);
+    };
+  }, [isCompanyUser, user?.id]);
 
   // Fechar menu do usuário quando clicar fora
   useEffect(() => {
@@ -83,10 +198,34 @@ const Header: React.FC = () => {
   };
 
 
+  const subscriptionBannerHeight = 44;
+
   return (
-    <header className={`fixed top-0 left-0 right-0 bg-white backdrop-blur-sm z-50 transition-shadow duration-300 ${
-      isScrolled || isMobileMenuOpen ? 'shadow-lg' : 'shadow-none'
-    }`}>
+    <>
+      {subscriptionWarning?.showWarning && (
+        <div className="fixed top-0 left-0 right-0 z-[60] bg-red-50 border-b border-red-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-[44px] flex items-center justify-between gap-4">
+            <div className="text-sm font-medium text-red-800 truncate">
+              {subscriptionWarning.message || 'Pagamento atrasado'}
+            </div>
+            <Button
+              onClick={() => router.push(`/assinatura?plan=${subscriptionWarning.paymentPlan}`)}
+              variant="danger"
+              size="sm"
+              className="px-4 py-1 shrink-0"
+            >
+              Pagar agora
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <header
+        style={{ top: subscriptionWarning?.showWarning ? subscriptionBannerHeight : 0 }}
+        className={`fixed left-0 right-0 bg-white backdrop-blur-sm z-50 transition-shadow duration-300 ${
+          isScrolled || isMobileMenuOpen ? 'shadow-lg' : 'shadow-none'
+        }`}
+      >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 bg-white">
         <div className="flex justify-between items-center h-16 sm:h-20">
           {/* Logo */}
@@ -99,30 +238,74 @@ const Header: React.FC = () => {
 
           {/* Desktop Navigation Menu */}
           <nav className="hidden lg:flex items-center space-x-6">
-            <Link 
-              href="/sublocar"
-              className={getNavItemClass('/sublocar')}
-            >
-              Sublocar
-            </Link>
-            <Link 
-              href="/anunciar"
-              className={getNavItemClass('/anunciar')}
-            >
-              Anunciar
-            </Link>
-            <Link 
-              href="/como-funciona"
-              className={getNavItemClass('/como-funciona')}
-            >
-              Como funciona
-            </Link>
-            <Link 
-              href="/contato"
-              className={getNavItemClass('/contato')}
-            >
-              Contato
-            </Link>
+            {showSublocarLink && (
+              <Link
+                href="/sublocar"
+                className={getNavItemClass('/sublocar')}
+              >
+                Sublocar
+              </Link>
+            )}
+            {showDashboardLink && (
+              <Link
+                href="/painel-de-controle"
+                className={getNavItemClass('/painel-de-controle')}
+              >
+                Dashboard
+              </Link>
+            )}
+            {showAppointmentsLink && (
+              <Link
+                href="/agendamentos"
+                className={getNavItemClass('/agendamentos')}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <span>Agendamentos</span>
+                  {isCompanyUser && pendingAppointmentsCount > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                      {pendingAppointmentsCount}
+                    </span>
+                  )}
+                </span>
+              </Link>
+            )}
+            {showChatLink && (
+              <Link
+                href="/chat"
+                className={getNavItemClass('/chat')}
+              >
+                <span className="inline-flex items-center gap-2">
+                  <span>Chat</span>
+                  {unreadMessagesCount > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                      {unreadMessagesCount}
+                    </span>
+                  )}
+                </span>
+              </Link>
+            )}
+            {!isAuthenticated && (
+              <>
+                <Link
+                  href="/anunciar"
+                  className={getNavItemClass('/anunciar')}
+                >
+                  Anunciar
+                </Link>
+                <Link
+                  href="/como-funciona"
+                  className={getNavItemClass('/como-funciona')}
+                >
+                  Como funciona
+                </Link>
+                <Link
+                  href="/contato"
+                  className={getNavItemClass('/contato')}
+                >
+                  Contato
+                </Link>
+              </>
+            )}
           </nav>
 
           {/* Desktop Right Section */}
@@ -151,26 +334,21 @@ const Header: React.FC = () => {
                 {isUserMenuOpen && (
                   <div className="absolute top-12 right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                     <Link
-                      href="/painel-de-controle"
-                      onClick={() => setIsUserMenuOpen(false)}
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
-                    >
-                      Painel
-                    </Link>
-                    <Link
-                      href="/agendamentos"
-                      onClick={() => setIsUserMenuOpen(false)}
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
-                    >
-                      Agendamentos
-                    </Link>
-                    <Link
                       href="/perfil"
                       onClick={() => setIsUserMenuOpen(false)}
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
                     >
                       Meu perfil
                     </Link>
+                    {isCompanyUser && (
+                      <Link
+                        href="/minha-assinatura"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                      >
+                        Minha assinatura
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       disabled={isLoggingOut}
@@ -239,19 +417,21 @@ const Header: React.FC = () => {
                 {isUserMenuOpen && (
                   <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                     <Link
-                      href="/painel-de-controle"
-                      onClick={() => setIsUserMenuOpen(false)}
-                      className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
-                    >
-                      Painel
-                    </Link>
-                    <Link
                       href="/perfil"
                       onClick={() => setIsUserMenuOpen(false)}
                       className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
                     >
                       Meu perfil
                     </Link>
+                    {isCompanyUser && (
+                      <Link
+                        href="/minha-assinatura"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors duration-200 cursor-pointer"
+                      >
+                        Minha assinatura
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       disabled={isLoggingOut}
@@ -301,39 +481,87 @@ const Header: React.FC = () => {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-gray-200 bg-white/95 backdrop-blur-sm">
             <nav className="py-4 space-y-2">
-              <Link 
-                href="/sublocar"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={getMobileNavItemClass('/sublocar')}
-              >
-                Sublocar
-              </Link>
-              <Link 
-                href="/anunciar"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={getMobileNavItemClass('/anunciar')}
-              >
-                Anunciar
-              </Link>
-              <Link 
-                href="/como-funciona"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={getMobileNavItemClass('/como-funciona')}
-              >
-                Como funciona
-              </Link>
-              <Link 
-                href="/contato"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className={getMobileNavItemClass('/contato')}
-              >
-                Contato
-              </Link>
+              {showSublocarLink && (
+                <Link
+                  href="/sublocar"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={getMobileNavItemClass('/sublocar')}
+                >
+                  Sublocar
+                </Link>
+              )}
+              {showDashboardLink && (
+                <Link
+                  href="/painel-de-controle"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={getMobileNavItemClass('/painel-de-controle')}
+                >
+                  Dashboard
+                </Link>
+              )}
+              {showAppointmentsLink && (
+                <Link
+                  href="/agendamentos"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={getMobileNavItemClass('/agendamentos')}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <span>Agendamentos</span>
+                    {isCompanyUser && pendingAppointmentsCount > 0 && (
+                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                        {pendingAppointmentsCount}
+                      </span>
+                    )}
+                  </span>
+                </Link>
+              )}
+              {showChatLink && (
+                <Link
+                  href="/chat"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={getMobileNavItemClass('/chat')}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <span>Chat</span>
+                    {unreadMessagesCount > 0 && (
+                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                        {unreadMessagesCount}
+                      </span>
+                    )}
+                  </span>
+                </Link>
+              )}
+              {!isAuthenticated && (
+                <>
+                  <Link
+                    href="/anunciar"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={getMobileNavItemClass('/anunciar')}
+                  >
+                    Anunciar
+                  </Link>
+                  <Link
+                    href="/como-funciona"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={getMobileNavItemClass('/como-funciona')}
+                  >
+                    Como funciona
+                  </Link>
+                  <Link
+                    href="/contato"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className={getMobileNavItemClass('/contato')}
+                  >
+                    Contato
+                  </Link>
+                </>
+              )}
             </nav>
           </div>
         )}
       </div>
-    </header>
+      </header>
+    </>
   );
 };
 

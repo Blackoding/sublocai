@@ -11,12 +11,9 @@ import AdSense from '@/components/AdSense';
 import Loading from '@/components/Loading';
 import { formatDetailedAddress } from '@/constants/address';
 import { useSpecialties } from '@/hooks/useSpecialties';
-import { useClinicRating } from '@/hooks/useClinicRating';
 
 // Componente para carregar rating individualmente
 const ConsultorioCardWithRating = ({ consultorio }: { consultorio: Consultorio }) => {
-  const { rating } = useClinicRating(consultorio.id);
-
   return (
     <SublocationCard
       id={consultorio.id || 'unknown'}
@@ -25,7 +22,7 @@ const ConsultorioCardWithRating = ({ consultorio }: { consultorio: Consultorio }
       price={consultorio.price.toString()}
       imageUrl={consultorio.images && consultorio.images.length > 0 ? consultorio.images[0] : '/office-empty.jpg'}
       plus={consultorio.features as SublocationPlus[]}
-      rating={rating}
+      rating={0}
     />
   );
 };

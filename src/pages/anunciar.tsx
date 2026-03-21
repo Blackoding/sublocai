@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/router';
-import Image from 'next/image';
 import Link from 'next/link';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
@@ -8,14 +7,17 @@ import Select from '@/components/Select';
 import MultiSelect from '@/components/MultiSelect';
 import Checkbox from '@/components/Checkbox';
 import AuthWarning from '@/components/AuthWarning';
+import Modal from '@/components/Modal';
 import { SublocationPlus } from '@/types';
 import { SPECIALTIES } from '@/constants/specialties';
 import { useAuthStore } from '@/stores/authStore';
+import { useToastStore } from '@/stores/toastStore';
 import { consultarCep, formatarCep, validarCep } from '@/services/public/cepService';
 
 const AnunciarPage = () => {
   const router = useRouter();
   const { isAuthenticated, user, isLoading: authLoading } = useAuthStore();
+  const showToast = useToastStore((state) => state.showToast);
   
   // Debug logs
   console.log('AnunciarPage - Auth state:', { isAuthenticated, user: user?.fullName, authLoading });
@@ -54,6 +56,8 @@ const AnunciarPage = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isConsultingCep, setIsConsultingCep] = useState(false);
+  const [isSalaLimitModalOpen, setIsSalaLimitModalOpen] = useState(false);
+  const [salaLimitMax, setSalaLimitMax] = useState<number>(1);
 
   // Refs para os campos do formulário
   const fieldRefs = {
@@ -68,6 +72,7 @@ const AnunciarPage = () => {
     googleMapsUrl: useRef<HTMLInputElement>(null),
     price: useRef<HTMLInputElement>(null),
     description: useRef<HTMLTextAreaElement>(null),
+    images: useRef<HTMLDivElement>(null),
     specialties: useRef<HTMLDivElement>(null),
     availability: useRef<HTMLDivElement>(null)
   };
@@ -142,21 +147,69 @@ const AnunciarPage = () => {
   };
 
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    
-    files.forEach(file => {
-      if (file.type.startsWith('image/')) {
-        const id = Math.random().toString(36).substr(2, 9);
-        const preview = URL.createObjectURL(file);
-        const order = formData.images.length;
-        
-        setFormData(prev => ({
-          ...prev,
-          images: [...prev.images, { id, file, preview, order }]
-        }));
-      }
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
     });
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const input = e.target;
+
+    if (errors.images) {
+      setErrors(prev => ({
+        ...prev,
+        images: ''
+      }));
+    }
+
+    const maxImages = 6;
+    const maxSizeBytes = 10 * 1024 * 1024;
+
+    const allowedFiles = files.filter((file) => file.type.startsWith('image/'));
+    const remainingSlots = Math.max(0, maxImages - formData.images.length);
+    if (allowedFiles.length > remainingSlots) {
+      setErrors(prev => ({
+        ...prev,
+        images: 'Você pode adicionar no máximo 6 fotos.'
+      }));
+      return;
+    }
+
+    const selectedFiles = allowedFiles.slice(0, remainingSlots);
+    const oversized = selectedFiles.find((file) => file.size > maxSizeBytes);
+
+    if (oversized) {
+      setErrors(prev => ({
+        ...prev,
+        images: 'A foto é muito grande. Tamanho máximo: 10MB por imagem.'
+      }));
+      return;
+    }
+
+    const newImages = await Promise.all(
+      selectedFiles.map(async (file) => {
+        const id = Math.random().toString(36).substr(2, 9);
+        const preview = await readFileAsDataUrl(file);
+        return { id, file, preview };
+      })
+    );
+
+    setFormData(prev => ({
+      ...prev,
+      images: [
+        ...prev.images,
+        ...newImages.map((img, index) => ({
+          ...img,
+          order: prev.images.length + index
+        }))
+      ]
+    }));
+
+    input.value = '';
   };
 
   const removeImage = (id: string) => {
@@ -276,6 +329,10 @@ const AnunciarPage = () => {
       newErrors.description = 'Descrição deve ter pelo menos 20 caracteres';
     }
 
+    if (formData.images.length === 0) {
+      newErrors.images = 'Pelo menos uma foto é obrigatória';
+    }
+
     // Validação das especialidades
     if (formData.specialties.length === 0) {
       newErrors.specialties = 'Pelo menos uma especialidade é obrigatória';
@@ -350,13 +407,13 @@ const AnunciarPage = () => {
     
     // Verificar se o usuário está logado
     if (!isAuthenticated) {
-      alert('Você precisa estar logado para anunciar um consultório.');
+      showToast('Você precisa estar logado para anunciar um consultório.', 'error');
       return;
     }
     
     // Verificar se o usuário é do tipo empresa
     if (user?.userType !== 'company') {
-      alert('Apenas empresas podem anunciar consultórios.');
+      showToast('Apenas empresas podem anunciar consultórios.', 'error');
       return;
     }
     
@@ -373,8 +430,28 @@ const AnunciarPage = () => {
       // Import clinicUtils dynamically
       const { clinicUtils } = await import('@/services/clinicService');
       console.log('✅ clinicUtils imported successfully');
+
+      if (user?.id) {
+        const clinicsResult = await clinicUtils.getClinicsByUser(user.id);
+        const clinicsCount = clinicsResult.clinics?.length || 0;
+
+        const planEmpresa = user.planEmpresa || 'free';
+        const getMaxClinicsForPlan = (plan: typeof planEmpresa): number => {
+          if (plan === 'free') return 1;
+          if (plan === 'basic') return 1;
+          return 999;
+        };
+
+        const maxClinics = getMaxClinicsForPlan(planEmpresa);
+
+        if (clinicsCount >= maxClinics) {
+          setSalaLimitMax(maxClinics);
+          setIsSalaLimitModalOpen(true);
+          return;
+        }
+      }
       
-      // Prepare data for Supabase
+      // Prepare data for persistence service
       // Extrair valor numérico da moeda formatada (ex: "R$ 50,00" -> 50.00)
       const cleanPrice = formData.price
         .replace(/[^\d,.-]/g, '') // Remove tudo exceto dígitos, vírgula, ponto e hífen
@@ -389,7 +466,7 @@ const AnunciarPage = () => {
       
       // Validação adicional do preço
       if (numericPrice <= 0) {
-        alert('Por favor, insira um preço válido maior que zero.');
+        showToast('Por favor, insira um preço válido maior que zero.', 'error');
         setIsLoading(false);
         return;
       }
@@ -409,36 +486,38 @@ const AnunciarPage = () => {
         price: numericPrice,
         specialty: formData.specialties.join(', '), // Campo legado - join multiple specialties
         specialties: formData.specialties, // Novo campo - array de especialidades
-        images: formData.images.map(img => img.preview), // Image URLs
+        images: formData.images
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map(img => img.preview), // Image URLs
         features: formData.plus, // Selected amenities
         google_maps_url: formData.googleMapsUrl, // URL do Google Maps
         availability: formData.availability, // Horários de disponibilidade
-        hasappointment: formData.hasAppointment, // Configuração de agendamento (campo no banco é minúsculo)
+        hasappointment: true,
         status: 'pending' as const
       };
 
-      console.log('🏢 Data prepared for Supabase:', clinicData);
+      console.log('🏢 Data prepared:', clinicData);
       
       const result = await clinicUtils.createClinic(clinicData);
       
       console.log('🏢 Creation result:', result);
 
       if (result.success) {
-        alert('Consultório cadastrado com sucesso! Aguarde a aprovação.');
+        showToast('Consultório cadastrado com sucesso! Aguarde a aprovação.', 'success');
         // Redirect to control panel
         router.push('/painel-de-controle');
       } else {
         console.error('❌ Registration error:', result.error);
-        alert(`Erro ao cadastrar consultório: ${result.error || 'Tente novamente.'}`);
+        showToast(`Erro ao cadastrar consultório: ${result.error || 'Tente novamente.'}`, 'error');
       }
     } catch (error) {
       console.error('💥 Unexpected error in handleSubmit:', error);
-      alert(`Erro ao cadastrar consultório: ${error instanceof Error ? error.message : 'Tente novamente.'}`);
+      showToast(`Erro ao cadastrar consultório: ${error instanceof Error ? error.message : 'Tente novamente.'}`, 'error');
     } finally {
       setIsLoading(false);
     }
   };
-
 
   const plusOptions = [
     { value: 'wifi', label: 'WiFi' },
@@ -447,7 +526,9 @@ const AnunciarPage = () => {
     { value: 'bathroom', label: 'Banheiro' },
     { value: 'parking', label: 'Estacionamento Fácil' },
     { value: 'microwave', label: 'Microondas' },
-    { value: 'refrigerator', label: 'Refrigerador' }
+    { value: 'refrigerator', label: 'Refrigerador' },
+    { value: 'guardVolume', label: 'Guarde Volume' },
+    { value: 'receptionist', label: 'Recepcionista' }
   ] as const;
 
   const dayOptions = [
@@ -732,13 +813,14 @@ const AnunciarPage = () => {
             </div>
 
             {/* Seção: Imagens */}
-            <div>
+            <div ref={fieldRefs.images}>
               <h2 className="text-xl font-semibold text-gray-900 mb-6">Fotos do Consultório</h2>
               
               {/* Upload de imagens */}
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-500 mb-2">
                   Adicionar fotos
+                  <span className="text-red-500 ml-1">*</span>
                 </label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
                   <input
@@ -762,23 +844,26 @@ const AnunciarPage = () => {
                 </div>
               </div>
 
+              {errors.images && (
+                <p className="text-red-500 text-sm mt-1">{errors.images}</p>
+              )}
+
               {/* Preview das imagens */}
               {formData.images.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium text-gray-900">Fotos adicionadas ({formData.images.length})</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {formData.images
+                      .slice()
                       .sort((a, b) => a.order - b.order)
                       .map((image, index) => (
                         <div key={image.id} className="relative group">
                           <div className="aspect-square rounded-lg overflow-hidden bg-gray-200">
-                            <Image
-                              src={image.preview}
-                              alt={`Preview ${index + 1}`}
-                              width={200}
-                              height={200}
-                              className="w-full h-full object-cover"
-                            />
+                              <img
+                                src={image.preview}
+                                alt={`Preview ${index + 1}`}
+                                className="w-full h-full object-cover"
+                              />
                           </div>
                           
                           {/* Controles da imagem */}
@@ -923,25 +1008,6 @@ const AnunciarPage = () => {
                     </Link>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            {/* Seção: Configuração de Agendamento */}
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-6">Configuração de Agendamento</h2>
-              <div className="bg-gray-50 p-6 rounded-lg">
-                <Checkbox
-                  label="Dispensar agendamentos na plataforma. Receber solicitações via WhatsApp"
-                  checked={!formData.hasAppointment}
-                  onChange={(checked) => setFormData(prev => ({ ...prev, hasAppointment: !checked }))}
-                  value="hasAppointment"
-                />
-                <p className="text-sm text-gray-600 mt-2">
-                  {formData.hasAppointment 
-                    ? "Os clientes poderão agendar diretamente na plataforma através do sistema de agendamento."
-                    : "Os clientes serão redirecionados para o WhatsApp para solicitar agendamentos."
-                  }
-                </p>
               </div>
             </div>
 
@@ -1105,6 +1171,30 @@ const AnunciarPage = () => {
             </div>
           </form>
         </div>
+        {isSalaLimitModalOpen && (
+          <Modal
+            isOpen={isSalaLimitModalOpen}
+            onClose={() => setIsSalaLimitModalOpen(false)}
+            title="Limite de salas excedido"
+            subtitle={`Você excedeu o limite de salas. O Plano Básico permite apenas ${salaLimitMax} sala(s).`}
+            primaryButton={{
+              text: 'Assinar Plano Básico',
+              onClick: () => {
+                setIsSalaLimitModalOpen(false);
+                router.push('/assinatura?plan=basic');
+              },
+            }}
+            secondaryButton={{
+              text: 'Cancelar',
+              onClick: () => setIsSalaLimitModalOpen(false)
+            }}
+            size="md"
+          >
+            <p className="text-sm text-gray-600">
+              Você pode escolher pagar via PIX ou Cartão de crédito na página de assinatura.
+            </p>
+          </Modal>
+        )}
       </div>
     </div>
   );

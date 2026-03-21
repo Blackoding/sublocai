@@ -58,6 +58,8 @@ const SublocationCard = ({
     );
   };
 
+  const ratingForDisplay = rating > 0 ? rating : 5;
+
 
   return (
     <Link href={`/consultorio/${id}`} className="block">
@@ -98,7 +100,7 @@ const SublocationCard = ({
             {renderStar()}
           </div>
           <span className="text-sm text-gray-700 font-medium">
-            {rating.toFixed(1)}
+            {ratingForDisplay.toFixed(1)}
           </span>
         </div>
         

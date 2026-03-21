@@ -3,8 +3,10 @@ import Button from '@/components/Button';
 import Input from '@/components/Input';
 import Select from '@/components/Select';
 import { useContact } from '@/services/contactService';
+import { useToastStore } from '@/stores/toastStore';
 
 const ContatoPage = () => {
+  const showToast = useToastStore((state) => state.showToast);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -118,14 +120,14 @@ const ContatoPage = () => {
           message: ''
         });
         
-        alert(result.message || 'Mensagem enviada com sucesso! Entraremos em contato em breve.');
+        showToast(result.message || 'Mensagem enviada com sucesso! Entraremos em contato em breve.', 'success');
       } else {
         console.error('❌ Erro no envio:', result.error);
-        alert(`Erro ao enviar mensagem: ${result.error || 'Tente novamente.'}`);
+        showToast(`Erro ao enviar mensagem: ${result.error || 'Tente novamente.'}`, 'error');
       }
     } catch (error) {
       console.error('💥 Erro inesperado no handleSubmit:', error);
-      alert(`Erro ao enviar mensagem: ${error instanceof Error ? error.message : 'Tente novamente.'}`);
+      showToast(`Erro ao enviar mensagem: ${error instanceof Error ? error.message : 'Tente novamente.'}`, 'error');
     }
   };
 

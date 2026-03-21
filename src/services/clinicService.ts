@@ -1,12 +1,5 @@
-import { useState, useCallback } from 'react';
-import { getSupabaseClient } from './supabase';
-import { Clinic } from '@/types';
-
-export interface ClinicResponse {
-  success: boolean;
-  clinic?: Clinic;
-  error?: string;
-}
+import { useCallback, useState } from 'react';
+import type { Clinic } from '@/types';
 
 export interface ClinicsResponse {
   success: boolean;
@@ -14,488 +7,233 @@ export interface ClinicsResponse {
   error?: string;
 }
 
-// Hook to manage clinics
+export interface ClinicResponse {
+  success: boolean;
+  clinic?: Clinic;
+  error?: string;
+}
+
+type ClinicRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  cep?: string | null;
+  street?: string | null;
+  number?: string | null;
+  neighborhood?: string | null;
+  complement?: string | null;
+  city: string;
+  state: string;
+  zip_code?: string | null;
+  price: number | string;
+  specialty?: string | null;
+  specialties?: string[] | null;
+  images?: string[] | null;
+  features?: string[] | null;
+  google_maps_url?: string | null;
+  availability?: unknown;
+  hasappointment?: boolean | null;
+  status?: string | null;
+  views?: number | null;
+  bookings?: number | null;
+  rating?: number | string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+const parseNumber = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const normalized = value.replace(',', '.');
+    const parsed = parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const mapClinicRowToClinic = (row: ClinicRow): Clinic => {
+  const specialties = Array.isArray(row.specialties) ? row.specialties : [];
+  const images = Array.isArray(row.images) ? row.images : [];
+  const features = Array.isArray(row.features) ? row.features : [];
+
+  const availability = Array.isArray(row.availability) ? row.availability : undefined;
+
+  const hasAppointment = typeof row.hasappointment === 'boolean' ? row.hasappointment : undefined;
+
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    title: row.title,
+    description: row.description,
+    cep: row.cep || undefined,
+    street: row.street || undefined,
+    number: row.number || undefined,
+    neighborhood: row.neighborhood || undefined,
+    complement: row.complement || undefined,
+    city: row.city,
+    state: row.state,
+    zip_code: row.zip_code || undefined,
+    price: parseNumber(row.price),
+    specialty: row.specialty || '',
+    specialties,
+    images,
+    features,
+    google_maps_url: row.google_maps_url || undefined,
+    availability: availability as Clinic['availability'],
+    hasAppointment,
+    status: (row.status as Clinic['status']) || undefined,
+    views: typeof row.views === 'number' ? row.views : undefined,
+    bookings: typeof row.bookings === 'number' ? row.bookings : undefined,
+    rating: row.rating !== null && row.rating !== undefined ? parseNumber(row.rating) : undefined,
+    created_at: row.created_at || undefined,
+    updated_at: row.updated_at || undefined
+  };
+};
+
+const fetchJson = async <T,>(url: string, options: RequestInit): Promise<T> => {
+  const response = await fetch(url, options);
+  const json = (await response.json()) as T;
+  if (!response.ok) {
+    throw new Error('Request failed');
+  }
+  return json;
+};
+
 export const useClinic = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const createClinic = useCallback(async (data: Omit<Clinic, 'id' | 'created_at' | 'updated_at' | 'views' | 'bookings'>): Promise<ClinicResponse> => {
+  const callCreateClinic = useCallback(async (clinicData: Clinic): Promise<ClinicResponse> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Create clinic using fetch direto
-      const createResponse = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics', {
-        method: 'POST',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          user_id: data.user_id,
-          title: data.title,
-          description: data.description,
-          cep: data.cep,
-          street: data.street,
-          number: data.number,
-          neighborhood: data.neighborhood,
-          complement: data.complement,
-          city: data.city,
-          state: data.state,
-          zip_code: data.zip_code, // Campo legado
-          price: data.price,
-          specialty: data.specialty, // Campo legado
-          specialties: data.specialties || [], // Novo campo
-          images: data.images,
-          features: data.features,
-          google_maps_url: data.google_maps_url,
-          availability: data.availability || [],
-          status: data.status || 'pending'
-        })
-      });
-
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
-        setError(errorData.message || 'Failed to create clinic');
-        return { success: false, error: errorData.message || 'Failed to create clinic' };
-      }
-
-      const clinicDataArray = await createResponse.json();
-      const clinicData = clinicDataArray[0];
-
-      if (!clinicData) {
-        setError('Clinic not created');
-        return { success: false, error: 'Clinic not created' };
-      }
-
-      return { 
-        success: true, 
-        clinic: clinicData
-      };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const getClinicsByUser = useCallback(async (userId: string): Promise<ClinicsResponse> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Get clinics by user using fetch direto
-      const clinicsResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?user_id=eq.${userId}&select=*&order=created_at.desc`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!clinicsResponse.ok) {
-        const errorData = await clinicsResponse.json();
-        setError(errorData.message || 'Failed to fetch clinics');
-        return { success: false, error: errorData.message || 'Failed to fetch clinics' };
-      }
-
-      const clinics = await clinicsResponse.json();
-      return { success: true, clinics: clinics || [] };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const getClinicById = useCallback(async (id: string): Promise<ClinicResponse> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Get clinic by ID using fetch direto
-      const clinicResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!clinicResponse.ok) {
-        const errorData = await clinicResponse.json();
-        setError(errorData.message || 'Failed to fetch clinic');
-        return { success: false, error: errorData.message || 'Failed to fetch clinic' };
-      }
-
-      const clinicArray = await clinicResponse.json();
-      const clinic = clinicArray[0];
-
-      if (!clinic) {
-        setError('Clinic not found');
-        return { success: false, error: 'Clinic not found' };
-      }
-
-      return { success: true, clinic };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const updateClinic = useCallback(async (id: string, updates: Partial<Omit<Clinic, 'id' | 'user_id' | 'created_at' | 'updated_at'>>): Promise<ClinicResponse> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Update clinic using fetch direto
-      const updateResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(updates)
-      });
-
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        setError(errorData.message || 'Failed to update clinic');
-        return { success: false, error: errorData.message || 'Failed to update clinic' };
-      }
-
-      const clinicArray = await updateResponse.json();
-      const clinic = clinicArray[0];
-
-      if (!clinic) {
-        setError('Clinic not found after update');
-        return { success: false, error: 'Clinic not found after update' };
-      }
-
-      return { success: true, clinic };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const deleteClinic = useCallback(async (id: string): Promise<ClinicResponse> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Delete clinic using fetch direto
-      const deleteResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}`, {
-        method: 'DELETE',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!deleteResponse.ok) {
-        const errorData = await deleteResponse.json();
-        setError(errorData.message || 'Failed to delete clinic');
-        return { success: false, error: errorData.message || 'Failed to delete clinic' };
-      }
-
-      return { success: true };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        success: false, 
-        error: errorMessage
-      };
+      const result = await clinicUtils.createClinic(clinicData);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unexpected error';
+      setError(message);
+      return { success: false, error: message };
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   return {
-    createClinic,
-    getClinicsByUser,
-    getClinicById,
-    updateClinic,
-    deleteClinic,
     isLoading,
-    error
+    error,
+    createClinic: callCreateClinic
   };
 };
 
-// Utility functions for direct use (without hooks)
+type CreateClinicApiResponse = {
+  clinic?: ClinicRow;
+  error?: string;
+};
+
+type ClinicsApiResponse = {
+  clinics?: ClinicRow[];
+  error?: string;
+};
+
+type DeleteClinicApiResponse = {
+  success?: boolean;
+  error?: string;
+};
+
+type UpdateClinicApiResponse = {
+  clinic?: ClinicRow;
+  error?: string;
+};
+
 export const clinicUtils = {
-  async createClinic(data: Omit<Clinic, 'id' | 'created_at' | 'updated_at' | 'views' | 'bookings'>): Promise<ClinicResponse> {
+  async createClinic(clinicData: Clinic): Promise<ClinicResponse> {
     try {
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
+      const json = await fetchJson<CreateClinicApiResponse>('/api/clinics/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(clinicData)
+      });
+
+      if (!json.clinic) {
+        return { success: false, error: json.error || 'Failed to create clinic' };
       }
 
-      const supabase = getSupabaseClient();
-      const { data: clinicData, error: insertError } = await supabase
-        .from('clinics')
-        .insert({
-          user_id: data.user_id,
-          title: data.title,
-          description: data.description,
-          cep: data.cep,
-          street: data.street,
-          number: data.number,
-          neighborhood: data.neighborhood,
-          complement: data.complement,
-          city: data.city,
-          state: data.state,
-          zip_code: data.zip_code, // Campo legado
-          price: data.price,
-          specialty: data.specialty, // Campo legado
-          specialties: data.specialties || [], // Novo campo
-          images: data.images,
-          features: data.features,
-          google_maps_url: data.google_maps_url,
-          availability: data.availability || [],
-          status: data.status || 'pending'
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        return { success: false, error: insertError.message };
-      }
-      return { 
-        success: true, 
-        clinic: clinicData
-      };
+      return { success: true, clinic: mapClinicRowToClinic(json.clinic) };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
+      const message = error instanceof Error ? error.message : 'Failed to create clinic';
+      return { success: false, error: message };
     }
   },
 
   async getClinicsByUser(userId: string): Promise<ClinicsResponse> {
     try {
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Get clinics by user using fetch direto
-      const clinicsResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?user_id=eq.${userId}&select=*&order=created_at.desc`, {
-        method: 'GET',
+      const json = await fetchJson<ClinicsApiResponse>('/api/clinics/by-user', {
+        method: 'POST',
         headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ userId })
       });
 
-      if (!clinicsResponse.ok) {
-        const errorData = await clinicsResponse.json();
-        return { success: false, error: errorData.message || 'Failed to fetch clinics' };
-      }
-
-      const clinics = await clinicsResponse.json();
-      return { success: true, clinics: clinics || [] };
+      const clinics = json.clinics || [];
+      return { success: true, clinics: clinics.map(mapClinicRowToClinic) };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
+      const message = error instanceof Error ? error.message : 'Failed to fetch clinics';
+      return { success: false, error: message };
     }
   },
-
 
   async getActiveClinics(): Promise<ClinicsResponse> {
     try {
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Get all clinics using fetch direto
-      const clinicsResponse = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?select=*', {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        }
+      const json = await fetchJson<ClinicsApiResponse>('/api/clinics/active', {
+        method: 'GET'
       });
 
-      if (!clinicsResponse.ok) {
-        const errorData = await clinicsResponse.json();
-        return { success: false, error: errorData.message || 'Failed to fetch clinics' };
-      }
-
-      const allClinics = await clinicsResponse.json();
-
-      if (!allClinics || allClinics.length === 0) {
-        return { success: true, clinics: [] };
-      }
-
-      // Filtrar consultórios ativos no JavaScript
-      const activeClinics = allClinics.filter((clinic: Clinic) => clinic.status === 'active');
-      
-      return { success: true, clinics: activeClinics };
+      const clinics = json.clinics || [];
+      return { success: true, clinics: clinics.map(mapClinicRowToClinic) };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
+      const message = error instanceof Error ? error.message : 'Failed to fetch active clinics';
+      return { success: false, error: message };
     }
   },
 
-  async getClinicById(id: string): Promise<ClinicResponse> {
+  async updateClinic(clinicId: string, updates: Record<string, unknown>): Promise<ClinicResponse> {
     try {
-      // Only execute on client side
-      if (typeof window === 'undefined') {
-        return { success: false, error: 'Server side execution not allowed' };
-      }
-
-      // Get clinic by ID using fetch direto
-      const clinicResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}&select=*`, {
-        method: 'GET',
+      const json = await fetchJson<UpdateClinicApiResponse>('/api/clinics/update', {
+        method: 'POST',
         headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
           'Content-Type': 'application/json'
-        }
-      });
-
-      if (!clinicResponse.ok) {
-        const errorData = await clinicResponse.json();
-        return { success: false, error: errorData.message || 'Failed to fetch clinic' };
-      }
-
-      const clinicArray = await clinicResponse.json();
-      const clinic = clinicArray[0];
-
-      if (!clinic) {
-        return { success: false, error: 'Clinic not found' };
-      }
-
-      return { success: true, clinic };
-    } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
-    }
-  },
-
-  async updateClinic(id: string, updates: Partial<Omit<Clinic, 'id' | 'user_id' | 'created_at' | 'updated_at'>>): Promise<ClinicResponse> {
-    try {
-      // Update clinic using fetch direto
-      const updateResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
         },
-        body: JSON.stringify(updates)
+        body: JSON.stringify({ clinicId, updates })
       });
 
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        return { success: false, error: errorData.message || 'Failed to update clinic' };
-      }
-
-      const clinicArray = await updateResponse.json();
-      const clinic = clinicArray[0];
-
-      if (!clinic) {
-        return { success: false, error: 'Clinic not found after update' };
-      }
-
-      return { success: true, clinic };
+      if (!json.clinic) return { success: false, error: json.error || 'Failed to update clinic' };
+      return { success: true, clinic: mapClinicRowToClinic(json.clinic) };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
+      const message = error instanceof Error ? error.message : 'Failed to update clinic';
+      return { success: false, error: message };
     }
   },
 
-  async deleteClinic(id: string): Promise<ClinicResponse> {
+  async deleteClinic(clinicId: string): Promise<ClinicResponse> {
     try {
-      // Delete clinic using fetch direto
-      const deleteResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}`, {
-        method: 'DELETE',
+      const json = await fetchJson<DeleteClinicApiResponse>('/api/clinics/delete', {
+        method: 'POST',
         headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ clinicId })
       });
 
-      if (!deleteResponse.ok) {
-        const errorData = await deleteResponse.json();
-        return { success: false, error: errorData.message || 'Failed to delete clinic' };
-      }
-
+      if (!json.success) return { success: false, error: json.error || 'Failed to delete clinic' };
       return { success: true };
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
+      const message = error instanceof Error ? error.message : 'Failed to delete clinic';
+      return { success: false, error: message };
     }
   }
 };
+

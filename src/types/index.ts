@@ -1,4 +1,4 @@
-export type SublocationPlus = 'wifi' | 'airConditioning' | 'desk' | 'bathroom' | 'parking' | 'microwave' | 'refrigerator';
+export type SublocationPlus = 'wifi' | 'airConditioning' | 'desk' | 'bathroom' | 'parking' | 'microwave' | 'refrigerator' | 'guardVolume' | 'receptionist';
 
 export interface User {
   id: string;
@@ -8,6 +8,8 @@ export interface User {
   avatar?: string;
   createdAt: string;
   updatedAt: string;
+
+  planEmpresa?: 'free' | 'basic' | 'pro';
   
   // Campos específicos para profissionais
   fullName?: string;
@@ -29,6 +31,8 @@ export interface SignUpData {
   phone: string;
   password: string;
   userType: 'professional' | 'company';
+
+  planEmpresa?: 'free' | 'basic' | 'pro';
   
   // Para profissionais
   fullName?: string;
@@ -155,6 +159,9 @@ export interface Appointment {
   created_at: string;
   updated_at: string;
   clinic_title?: string; // Para exibição
+  clinic_company_name?: string;
+  clinic_cnpj?: string;
+  clinic_address?: string;
   users?: {
     id: string;
     email: string;
@@ -173,4 +180,32 @@ export interface AppointmentFilters {
   day_of_week?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'all';
   status?: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'all';
   clinic_id?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  appointmentId: string;
+  senderId: string;
+  receiverId: string;
+  content: string;
+  createdAt: string;
+  senderName: string;
+}
+
+export interface ChatThread {
+  appointmentId: string;
+  clinicId: string;
+  clinicTitle: string;
+  counterpartId: string;
+  counterpartName: string;
+  counterpartTypeLabel: 'Profissional' | 'Empresa';
+  appointmentDate: string;
+  appointmentTime: string;
+  appointmentStatus: Appointment['status'];
+  latestMessage?: {
+    content: string;
+    createdAt: string;
+    senderId: string;
+  };
+  unreadCount: number;
 }

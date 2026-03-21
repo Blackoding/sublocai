@@ -1,6 +1,5 @@
 import SublocationCard from "./SublocationCard";
 import { SublocationPlus, Clinic } from '@/types';
-import { useClinicRating } from '@/hooks/useClinicRating';
 import { formatDetailedAddress } from '@/constants/address';
 
 interface MightLikeProps {
@@ -9,8 +8,6 @@ interface MightLikeProps {
 
 // Componente para carregar rating individualmente
 const ClinicCardWithRating = ({ clinic }: { clinic: Clinic }) => {
-  const { rating } = useClinicRating(clinic.id);
-
   return (
     <SublocationCard
       key={clinic.id}
@@ -20,7 +17,7 @@ const ClinicCardWithRating = ({ clinic }: { clinic: Clinic }) => {
       price={clinic.price.toString()}
       imageUrl={clinic.images && clinic.images.length > 0 ? clinic.images[0] : '/office-empty.jpg'}
       plus={clinic.features as SublocationPlus[]}
-      rating={rating}
+      rating={0}
     />
   );
 };

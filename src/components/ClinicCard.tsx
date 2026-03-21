@@ -68,6 +68,9 @@ const ClinicCard: React.FC<ClinicCardProps> = ({
     ));
   };
 
+  const ratingForDisplay =
+    typeof clinic.rating === 'number' && clinic.rating > 0 ? clinic.rating : 5;
+
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between">
@@ -97,16 +100,14 @@ const ClinicCard: React.FC<ClinicCardProps> = ({
               <p className="text-gray-600 mb-2">{clinic.address}</p>
               
               {/* Rating */}
-              {clinic.rating !== undefined && clinic.rating > 0 && (
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="flex items-center">
-                    {renderStars(clinic.rating)}
-                  </div>
-                  <span className="text-sm text-gray-600">
-                    {clinic.rating.toFixed(1)}/5
-                  </span>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center">
+                  {renderStars(ratingForDisplay)}
                 </div>
-              )}
+                <span className="text-sm text-gray-600">
+                  {ratingForDisplay.toFixed(1)}/5
+                </span>
+              </div>
               
               <div className="flex items-center space-x-4 text-sm text-gray-500">
                 <span className="flex items-center">

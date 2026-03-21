@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import Image from 'next/image';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { GetServerSideProps } from 'next';
@@ -12,9 +11,10 @@ import Checkbox from '@/components/Checkbox';
 import Loading from '@/components/Loading';
 // import { SublocationPlus } from '@/types';
 import { SPECIALTIES } from '@/constants/specialties';
-// import { getSupabaseClient } from '@/services/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { useToastStore } from '@/stores/toastStore';
 import { consultarCep, formatarCep, validarCep } from '@/services/public/cepService';
+import { createAnonSupabaseClient } from '@/config/supabase';
 
 interface Consultorio {
   id: string;
@@ -53,7 +53,8 @@ interface EditClinicPageProps {
 const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
   const router = useRouter();
   // const { id: _id } = router.query;
-  const { isAuthenticated, isLoading: authLoading, user } = useAuthStore();
+  const { isAuthenticated, isLoading: authLoading, user, getCurrentUser } = useAuthStore();
+  const showToast = useToastStore((state) => state.showToast);
   
   
   const [formData, setFormData] = useState({
@@ -187,6 +188,12 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     }
   }, [consultorio]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && router.isReady && !isAuthenticated) {
+      getCurrentUser();
+    }
+  }, [isAuthenticated, router.isReady, getCurrentUser]);
+
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
@@ -289,21 +296,72 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     }));
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    
-    files.forEach(file => {
-      if (file.type.startsWith('image/')) {
-        const id = Math.random().toString(36).substr(2, 9);
-        const preview = URL.createObjectURL(file);
-        const order = formData.images.length;
-        
-        setFormData(prev => ({
-          ...prev,
-          images: [...prev.images, { id, file, preview, order }]
-        }));
-      }
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
     });
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const input = e.target;
+
+    if (errors.images) {
+      setErrors(prev => ({
+        ...prev,
+        images: ''
+      }));
+    }
+
+    const maxImages = 6;
+    const maxSizeBytes = 10 * 1024 * 1024;
+
+    const allowedFiles = files.filter((file) => file.type.startsWith('image/'));
+    const remainingSlots = Math.max(0, maxImages - formData.images.length);
+    if (allowedFiles.length > remainingSlots) {
+      setErrors(prev => ({
+        ...prev,
+        images: 'Você pode adicionar no máximo 6 fotos.'
+      }));
+      return;
+    }
+
+    const selectedFiles = allowedFiles.slice(0, remainingSlots);
+    const oversized = selectedFiles.find((file) => file.size > maxSizeBytes);
+
+    if (oversized) {
+      setErrors(prev => ({
+        ...prev,
+        images: 'A foto é muito grande. Tamanho máximo: 10MB por imagem.'
+      }));
+      return;
+    }
+
+    const newImages = await Promise.all(
+      selectedFiles.map(async (file) => {
+        const id = Math.random().toString(36).substr(2, 9);
+        const preview = await readFileAsDataUrl(file);
+        return { id, file, preview };
+      })
+    );
+
+    setFormData(prev => {
+      const startIndex = prev.images.length;
+      return {
+        ...prev,
+        images: [
+          ...prev.images,
+          ...newImages.map((img, index) => ({
+            ...img,
+            order: startIndex + index
+          }))
+        ]
+      };
+    });
+
+    input.value = '';
   };
 
   const removeImage = (imageId: string) => {
@@ -417,13 +475,13 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     
     // Check if user is logged in
     if (!isAuthenticated || !user) {
-      alert('Você precisa estar logado para editar um consultório.');
+      showToast('Você precisa estar logado para editar um consultório.', 'error');
       return;
     }
 
     // Check if user owns the clinic
     if (consultorio.user_id !== user.id) {
-      alert('Você não tem permissão para editar este consultório.');
+      showToast('Você não tem permissão para editar este consultório.', 'error');
       return;
     }
     
@@ -442,7 +500,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
       const numericPrice = parseFloat(cleanPrice) || 0;
       
       if (numericPrice <= 0) {
-        alert('Por favor, insira um preço válido maior que zero.');
+        showToast('Por favor, insira um preço válido maior que zero.', 'error');
         setIsLoading(false);
         return;
       }
@@ -467,15 +525,18 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
         specialties: formData.specialties, // New field
         features: formData.features,
         availability: formData.availability, // Horários de disponibilidade
-        hasappointment: formData.hasAppointment, // Configuração de agendamento (campo no banco é minúsculo)
-        images: formData.images.map(img => img.preview),
+        hasappointment: true,
+        images: formData.images
+          .slice()
+          .sort((a, b) => a.order - b.order)
+          .map(img => img.preview),
         status: consultorio.status // Manter o status atual
       };
 
       const result = await clinicUtils.updateClinic(consultorio.id, updateData);
       
       if (result.success) {
-        alert('Consultório atualizado com sucesso!');
+        showToast('Consultório atualizado com sucesso!', 'success');
         router.push('/painel-de-controle');
       } else {
         setError(result.error || 'Erro ao atualizar consultório.');
@@ -739,15 +800,14 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                     <h3 className="text-lg font-medium text-gray-900">Fotos adicionadas ({formData.images.length})</h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {formData.images
+                        .slice()
                         .sort((a, b) => a.order - b.order)
                         .map((image, index) => (
                           <div key={image.id} className="relative group">
                             <div className="aspect-square rounded-lg overflow-hidden bg-gray-200">
-                              <Image
+                              <img
                                 src={image.preview}
                                 alt={`Preview ${index + 1}`}
-                                width={200}
-                                height={200}
                                 className="w-full h-full object-cover"
                               />
                             </div>
@@ -840,7 +900,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
               <div>
                 <h2 className="text-xl font-semibold text-gray-900 mb-6">Comodidades</h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {(['wifi', 'airConditioning', 'desk', 'bathroom', 'parking', 'microwave', 'refrigerator'] as string[]).map((feature) => (
+                  {(['wifi', 'airConditioning', 'desk', 'bathroom', 'parking', 'microwave', 'refrigerator', 'guardVolume', 'receptionist'] as string[]).map((feature) => (
                     <Checkbox
                       key={feature}
                       label={feature === 'wifi' ? 'WiFi' : 
@@ -849,7 +909,9 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                              feature === 'bathroom' ? 'Banheiro' :
                              feature === 'parking' ? 'Estacionamento Fácil' :
                              feature === 'microwave' ? 'Microondas' :
-                             feature === 'refrigerator' ? 'Refrigerador' : feature}
+                             feature === 'refrigerator' ? 'Refrigerador' :
+                             feature === 'guardVolume' ? 'Guarde Volume' :
+                             feature === 'receptionist' ? 'Recepcionista' : feature}
                       checked={formData.features.includes(feature)}
                       onChange={(checked) => handleFeatureChange(feature, checked)}
                     />
@@ -885,25 +947,6 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       </Link>
                     </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Section: Configuração de Agendamento */}
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Configuração de Agendamento</h2>
-                <div className="bg-gray-50 p-6 rounded-lg">
-                  <Checkbox
-                    label="Dispensar agendamentos na plataforma. Receber solicitações via WhatsApp"
-                    checked={!formData.hasAppointment}
-                    onChange={(checked) => setFormData(prev => ({ ...prev, hasAppointment: !checked }))}
-                    value="hasAppointment"
-                  />
-                  <p className="text-sm text-gray-600 mt-2">
-                    {formData.hasAppointment 
-                      ? "Os clientes poderão agendar diretamente na plataforma através do sistema de agendamento."
-                      : "Os clientes serão redirecionados para o WhatsApp para solicitar agendamentos."
-                    }
-                  </p>
                 </div>
               </div>
 
@@ -1068,56 +1111,134 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
   const id = params?.id as string;
   if (!id) return { notFound: true };
 
+  type ClinicRow = {
+    id: string;
+    user_id: string;
+    title: string;
+    description: string;
+    cep?: string | null;
+    street?: string | null;
+    number?: string | null;
+    neighborhood?: string | null;
+    complement?: string | null;
+    city: string;
+    state: string;
+    zip_code?: string | null;
+    price: number | string;
+    specialty?: string | null;
+    specialties?: string[] | null;
+    images?: string[] | null;
+    features?: string[] | null;
+    google_maps_url?: string | null;
+    availability?: unknown;
+    hasappointment?: boolean | null;
+    status?: string | null;
+    views?: number | null;
+    bookings?: number | null;
+    rating?: number | string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+  };
+
+  const parseNumber = (value: unknown): number => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const normalized = value.replace(',', '.');
+      const parsed = parseFloat(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  const normalizeStringArray = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === 'string');
+  };
+
+  const normalizeAvailability = (
+    value: unknown
+  ): Consultorio['availability'] => {
+    if (!Array.isArray(value)) return undefined;
+
+    const normalized = value
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const obj = item as { id?: string; day?: string; startTime?: string; endTime?: string };
+
+        if (!obj.day || !obj.startTime || !obj.endTime) return null;
+
+        return {
+          id: obj.id || '',
+          day: obj.day,
+          startTime: obj.startTime,
+          endTime: obj.endTime
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    return normalized.length > 0 ? normalized : undefined;
+  };
+
   try {
-    // Fetch clinic using direct fetch (server-side compatible)
-    const clinicResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/clinics?id=eq.${id}&select=*`, {
-      method: 'GET',
-      headers: {
-        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-        'Content-Type': 'application/json'
+    const supabase = createAnonSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('clinics')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      return { notFound: true };
+    }
+
+    const row = data as ClinicRow;
+
+    const images = normalizeStringArray(row.images);
+    const features = normalizeStringArray(row.features);
+    const specialties = normalizeStringArray(row.specialties);
+
+    const availability = normalizeAvailability(row.availability) || [];
+
+    const hasappointment =
+      typeof row.hasappointment === 'boolean' ? row.hasappointment : true;
+
+    const nowIso = new Date().toISOString();
+    const consultorio = {
+      id: row.id,
+      user_id: row.user_id,
+      title: row.title,
+      description: row.description,
+      cep: row.cep ?? null,
+      street: row.street ?? null,
+      number: row.number ?? null,
+      neighborhood: row.neighborhood ?? null,
+      complement: row.complement ?? null,
+      city: row.city,
+      state: row.state,
+      zip_code: row.zip_code ?? null,
+      price: parseNumber(row.price),
+      specialty: row.specialty || '',
+      specialties,
+      images,
+      features,
+      google_maps_url: row.google_maps_url ?? null,
+      availability,
+      hasappointment,
+      hasAppointment: hasappointment,
+      status: (row.status as Consultorio['status']) || 'pending',
+      views: typeof row.views === 'number' ? row.views : 0,
+      bookings: typeof row.bookings === 'number' ? row.bookings : 0,
+      created_at: row.created_at || nowIso,
+      updated_at: row.updated_at || nowIso
+    } as unknown as Consultorio;
+
+    return {
+      props: {
+        consultorio
       }
-    });
-
-    if (!clinicResponse.ok) {
-      console.error('Error fetching clinic:', clinicResponse.status, clinicResponse.statusText);
-      return { notFound: true };
-    }
-
-    const clinicDataArray = await clinicResponse.json();
-    const clinic = clinicDataArray[0];
-
-    console.log('🔍 getServerSideProps - Clinic data from DB:', clinic);
-    console.log('🔍 getServerSideProps - Clinic keys:', Object.keys(clinic || {}));
-    console.log('🔍 getServerSideProps - Availability from DB:', clinic?.availability);
-    console.log('🔍 getServerSideProps - Features from DB:', clinic?.features);
-    console.log('🔍 getServerSideProps - Specialties from DB:', clinic?.specialties);
-    console.log('🔍 getServerSideProps - Images from DB:', clinic?.images);
-    console.log('🔍 getServerSideProps - Google Maps URL from DB:', clinic?.google_maps_url);
-
-    if (!clinic) {
-      console.error('Clinic not found');
-      return { notFound: true };
-    }
-
-    const consultorio: Consultorio = {
-      ...clinic,
-      features: clinic.features || [],
-      specialties: clinic.specialties || [],
-      availability: clinic.availability || [],
-      // Mapear explicitamente o campo hasAppointment (vem como hasappointment do banco)
-      hasAppointment: clinic.hasappointment !== undefined ? clinic.hasappointment : true
     };
-
-    console.log('🔍 getServerSideProps - Consultorio object:', consultorio);
-    console.log('🔍 getServerSideProps - Consultorio keys:', Object.keys(consultorio));
-    console.log('🔍 getServerSideProps - Final availability:', consultorio.availability);
-    console.log('🔍 getServerSideProps - Final features:', consultorio.features);
-    console.log('🔍 getServerSideProps - Final specialties:', consultorio.specialties);
-
-    return { props: { consultorio } };
-  } catch (error) {
-    console.error('Error in getServerSideProps:', error);
+  } catch {
     return { notFound: true };
   }
 };

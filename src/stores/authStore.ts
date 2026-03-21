@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { User, SignUpData, SignInData, ProfileUpdateData } from '@/types';
 import { authUtils } from '@/services/authService';
-import { getSupabaseAuthClient } from '@/services/supabase';
 
 interface AuthState {
   user: User | null;
@@ -111,7 +110,6 @@ export const useAuthStore = create<AuthStore>()(
         
         // Limpar localStorage e estado local
         if (typeof window !== 'undefined') {
-          // O Supabase gerencia automaticamente o localStorage
           console.log('AuthStore - Estado limpo');
         }
         
@@ -125,73 +123,17 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       getCurrentUser: async () => {
-        // Só executa no cliente
-        if (typeof window === 'undefined') {
-          return;
-        }
-
-        console.log('AuthStore - getCurrentUser iniciado');
         set({ isLoading: true });
-        
         try {
-          const supabase = getSupabaseAuthClient();
-          
-          // Primeiro, verificar se há uma sessão ativa
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-          
-          if (sessionError) {
-            console.log('AuthStore - Erro ao obter sessão:', sessionError);
-            set({ 
-              user: null, 
-              isAuthenticated: false, 
-              isLoading: false, 
-              error: null 
-            });
-            return;
-          }
-          
-          if (!session) {
-            console.log('AuthStore - Nenhuma sessão ativa');
-            set({ 
-              user: null, 
-              isAuthenticated: false, 
-              isLoading: false, 
-              error: null 
-            });
-            return;
-          }
-          
-          console.log('AuthStore - Sessão encontrada, buscando dados do usuário...');
-          
-          // Se há sessão, buscar dados do usuário
           const { user, error } = await authUtils.getCurrentUser();
-          
           if (error || !user) {
-            console.log('AuthStore - getCurrentUser sem usuário:', error);
-            set({ 
-              user: null, 
-              isAuthenticated: false, 
-              isLoading: false, 
-              error: null 
-            });
+            set({ user: null, isAuthenticated: false, isLoading: false, error: null });
             return;
           }
 
-          console.log('AuthStore - getCurrentUser sucesso:', (user as { fullName?: string }).fullName);
-          set({ 
-            user: user as User, 
-            isAuthenticated: true, 
-            isLoading: false, 
-            error: null 
-          });
-        } catch (error) {
-          console.warn('AuthStore - Error getting current user:', error);
-          set({ 
-            user: null, 
-            isAuthenticated: false, 
-            isLoading: false, 
-            error: null 
-          });
+          set({ user, isAuthenticated: true, isLoading: false, error: null });
+        } catch {
+          set({ user: null, isAuthenticated: false, isLoading: false, error: null });
         }
       },
 
@@ -244,31 +186,3 @@ export const useAuthStore = create<AuthStore>()(
     }
   )
 );
-
-// Listener para mudanças de autenticação
-if (typeof window !== 'undefined') {
-  const supabase = getSupabaseAuthClient();
-  
-  supabase.auth.onAuthStateChange(async (event, session) => {
-    console.log('AuthStore - Auth state change:', event, !!session);
-    
-    if (event === 'SIGNED_IN' && session) {
-      console.log('AuthStore - Usuário logado, buscando dados...');
-      // Buscar dados do usuário quando logar
-      const { getCurrentUser } = useAuthStore.getState();
-      await getCurrentUser();
-    } else if (event === 'SIGNED_OUT') {
-      console.log('AuthStore - Usuário deslogado');
-      useAuthStore.getState().signOut();
-    } else if (event === 'TOKEN_REFRESHED' && session) {
-      console.log('AuthStore - Token renovado');
-      // Token foi renovado, mas o usuário ainda está logado
-      // Não precisa fazer nada, o estado já está correto
-    } else if (event === 'INITIAL_SESSION' && session) {
-      console.log('AuthStore - Sessão inicial detectada');
-      // Sessão inicial detectada ao carregar a página
-      const { getCurrentUser } = useAuthStore.getState();
-      await getCurrentUser();
-    }
-  });
-}

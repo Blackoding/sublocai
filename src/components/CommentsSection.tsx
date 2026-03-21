@@ -9,9 +9,10 @@ import AuthWarning from './AuthWarning';
 interface CommentsSectionProps {
   clinicId: string;
   clinicTitle?: string;
+  onRatingComputed?: (rating: number) => void;
 }
 
-const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId }) => {
+const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingComputed }) => {
   const { isAuthenticated, user } = useAuthStore();
   const { 
     isLoading: serviceLoading, 
@@ -49,7 +50,25 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId }) => {
       const result = await getCommentsByClinic(clinicId);
       
       if (result.success && result.comments) {
-        setComments(result.comments);
+        const nextComments = result.comments;
+        setComments(nextComments);
+
+        const ratedComments = nextComments.filter(
+          (c) =>
+            typeof c.rating === 'number' &&
+            c.rating >= 1 &&
+            c.rating <= 5
+        );
+
+        const computedRating =
+          ratedComments.length > 0
+            ? ratedComments.reduce(
+                (sum, c) => sum + (c.rating as number),
+                0
+              ) / ratedComments.length
+            : 5;
+
+        onRatingComputed?.(computedRating);
       } else {
         setError(result.error || 'Erro ao carregar comentários');
       }
@@ -59,7 +78,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [clinicId, getCommentsByClinic, clearError]);
+  }, [clinicId, getCommentsByClinic, clearError, onRatingComputed]);
 
   const checkUserComment = useCallback(async () => {
     if (!user) return;

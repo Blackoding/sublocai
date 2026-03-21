@@ -1,447 +1,360 @@
-import { useState, useCallback } from 'react';
-import { getSupabaseAuthClient } from './supabase';
-import { User, SignUpData, SignInData, AuthResponse, ProfileUpdateData } from '@/types';
+import { useCallback, useState } from 'react';
+import type { AuthResponse, ProfileUpdateData, SignInData, SignUpData, User } from '@/types';
+import { createAnonSupabaseClient } from '@/config/supabase';
 
-// Hook para gerenciar autenticação
+type UsersTableRow = {
+  id: string;
+  email: string;
+  user_type: 'professional' | 'company';
+  phone: string;
+  avatar?: string | null;
+  full_name?: string | null;
+  cpf?: string | null;
+  birth_date?: string | null;
+  specialty?: string | null;
+  registration_code?: string | null;
+  company_name?: string | null;
+  trade_name?: string | null;
+  cnpj?: string | null;
+  responsible_name?: string | null;
+  responsible_cpf?: string | null;
+  plan_empresa?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type UsersTableSelectUser = {
+  user: User | null;
+  error: string | null;
+};
+
+type SupabaseAuthUserLike = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const isUserType = (value: unknown): User['userType'] | null => {
+  if (value === 'professional' || value === 'company') return value;
+  return null;
+};
+
+const mapRowToUser = (row: UsersTableRow): User => ({
+  id: row.id,
+  email: row.email,
+  userType: row.user_type,
+  phone: row.phone,
+  createdAt: row.created_at || new Date().toISOString(),
+  updatedAt: row.updated_at || new Date().toISOString(),
+  avatar: row.avatar || undefined,
+  fullName: row.full_name || undefined,
+  cpf: row.cpf || undefined,
+  birthDate: row.birth_date || undefined,
+  specialty: row.specialty || undefined,
+  registrationCode: row.registration_code || undefined,
+  companyName: row.company_name || undefined,
+  tradeName: row.trade_name || undefined,
+  cnpj: row.cnpj || undefined,
+  responsibleName: row.responsible_name || undefined,
+  responsibleCpf: row.responsible_cpf || undefined,
+  planEmpresa: parsePlanEmpresa(row.plan_empresa || undefined)
+});
+
+const safeMetadataString = (metadata: Record<string, unknown>, key: string): string | undefined => {
+  const value = metadata[key];
+  return isNonEmptyString(value) ? value : undefined;
+};
+
+const parsePlanEmpresa = (value: string | undefined): User['planEmpresa'] | undefined => {
+  if (!value) return undefined;
+  if (value === 'free' || value === 'basic' || value === 'pro') return value;
+  return undefined;
+};
+
+const mapAuthUserToUserFromMetadata = (authUser: SupabaseAuthUserLike): User | null => {
+  const metadata = authUser.user_metadata || {};
+  const userType = isUserType(metadata.userType);
+  const phone = safeMetadataString(metadata, 'phone');
+  const email = authUser.email || '';
+
+  if (!userType || !phone || !isNonEmptyString(email)) return null;
+
+  const createdAt = isNonEmptyString(authUser.created_at) ? authUser.created_at : new Date().toISOString();
+  const updatedAt = isNonEmptyString(authUser.updated_at) ? authUser.updated_at : new Date().toISOString();
+
+  const avatar = safeMetadataString(metadata, 'avatar');
+
+  const fullName = safeMetadataString(metadata, 'fullName');
+  const cpf = safeMetadataString(metadata, 'cpf');
+  const birthDate = safeMetadataString(metadata, 'birthDate');
+  const specialty = safeMetadataString(metadata, 'specialty');
+  const registrationCode = safeMetadataString(metadata, 'registrationCode');
+
+  const companyName = safeMetadataString(metadata, 'companyName');
+  const tradeName = safeMetadataString(metadata, 'tradeName');
+  const cnpj = safeMetadataString(metadata, 'cnpj');
+  const responsibleName = safeMetadataString(metadata, 'responsibleName');
+  const responsibleCpf = safeMetadataString(metadata, 'responsibleCpf');
+  const planEmpresa = parsePlanEmpresa(safeMetadataString(metadata, 'planEmpresa'));
+
+  return {
+    id: authUser.id,
+    email,
+    userType,
+    phone,
+    createdAt,
+    updatedAt,
+    avatar,
+    fullName,
+    cpf,
+    birthDate,
+    specialty,
+    registrationCode,
+    companyName,
+    tradeName,
+    cnpj,
+    responsibleName,
+    responsibleCpf,
+    planEmpresa
+  };
+};
+
+const fetchUsersTableUser = async (supabase: ReturnType<typeof createAnonSupabaseClient>, userId: string): Promise<UsersTableSelectUser> => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error || !data) return { user: null, error: error?.message || null };
+    const row = data as unknown as UsersTableRow;
+    return { user: mapRowToUser(row), error: null };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { user: null, error: errorMessage };
+  }
+};
+
+type SignUpApiResponse = {
+  user?: User;
+  error?: string;
+};
+
+export const authUtils = {
+  async signUp(data: SignUpData): Promise<AuthResponse> {
+    const response = await fetch('/api/auth-signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+
+    const json = (await response.json()) as SignUpApiResponse;
+    if (!response.ok || json.error) {
+      return { user: null, error: json.error || 'Erro ao criar conta' };
+    }
+
+    return { user: json.user || null, error: null };
+  },
+
+  async signIn(data: SignInData): Promise<AuthResponse> {
+    try {
+      const supabase = createAnonSupabaseClient();
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword(data);
+
+      if (signInError || !signInData.user) {
+        return { user: null, error: signInError?.message || 'Failed to sign in' };
+      }
+
+      const authUser = signInData.user as SupabaseAuthUserLike;
+      const usersTableUser = await fetchUsersTableUser(supabase, authUser.id);
+      if (usersTableUser.user) return { user: usersTableUser.user, error: null };
+
+      const metadataUser = mapAuthUserToUserFromMetadata(authUser);
+      if (metadataUser) return { user: metadataUser, error: null };
+
+      return { user: null, error: usersTableUser.error || 'User profile not found' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unexpected sign in error';
+      return { user: null, error: errorMessage };
+    }
+  },
+
+  async signOut(): Promise<{ error: string | null }> {
+    try {
+      const supabase = createAnonSupabaseClient();
+      const { error } = await supabase.auth.signOut();
+      return { error: error?.message || null };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unexpected sign out error';
+      return { error: errorMessage };
+    }
+  },
+
+  async getCurrentUser(): Promise<AuthResponse> {
+    try {
+      const supabase = createAnonSupabaseClient();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+
+      if (authError) {
+        return { user: null, error: null };
+      }
+
+      if (!authData.user) {
+        return { user: null, error: null };
+      }
+
+      const authUser = authData.user as SupabaseAuthUserLike;
+      const usersTableUser = await fetchUsersTableUser(supabase, authUser.id);
+      if (usersTableUser.user) return { user: usersTableUser.user, error: null };
+
+      const metadataUser = mapAuthUserToUserFromMetadata(authUser);
+      if (metadataUser) return { user: metadataUser, error: null };
+
+      return { user: null, error: usersTableUser.error || 'User profile not found' };
+    } catch {
+      return { user: null, error: null };
+    }
+  },
+
+  async updateProfile(userId: string, updates: ProfileUpdateData): Promise<AuthResponse> {
+    try {
+      const supabase = createAnonSupabaseClient();
+
+      const tableUpdates: Record<string, unknown> = {
+        phone: updates.phone
+      };
+
+      if (typeof updates.avatar === 'string') tableUpdates.avatar = updates.avatar;
+      if (typeof updates.fullName === 'string') tableUpdates.full_name = updates.fullName;
+      if (typeof updates.cpf === 'string') tableUpdates.cpf = updates.cpf;
+      if (typeof updates.birthDate === 'string') tableUpdates.birth_date = updates.birthDate;
+      if (typeof updates.specialty === 'string') tableUpdates.specialty = updates.specialty;
+      if (typeof updates.registrationCode === 'string') tableUpdates.registration_code = updates.registrationCode;
+
+      if (typeof updates.companyName === 'string') tableUpdates.company_name = updates.companyName;
+      if (typeof updates.tradeName === 'string') tableUpdates.trade_name = updates.tradeName;
+      if (typeof updates.cnpj === 'string') tableUpdates.cnpj = updates.cnpj;
+      if (typeof updates.responsibleName === 'string') tableUpdates.responsible_name = updates.responsibleName;
+      if (typeof updates.responsibleCpf === 'string') tableUpdates.responsible_cpf = updates.responsibleCpf;
+
+      const { data: updatedRow, error: tableUpdateError } = await supabase
+        .from('users')
+        .update(tableUpdates)
+        .eq('id', userId)
+        .select('*')
+        .single();
+
+      if (!tableUpdateError && updatedRow) {
+        const row = updatedRow as unknown as UsersTableRow;
+        return { user: mapRowToUser(row), error: null };
+      }
+
+      const metadataUpdates: Record<string, unknown> = {
+        phone: updates.phone
+      };
+
+      if (typeof updates.avatar === 'string') metadataUpdates.avatar = updates.avatar;
+      if (typeof updates.fullName === 'string') metadataUpdates.fullName = updates.fullName;
+      if (typeof updates.cpf === 'string') metadataUpdates.cpf = updates.cpf;
+      if (typeof updates.birthDate === 'string') metadataUpdates.birthDate = updates.birthDate;
+      if (typeof updates.specialty === 'string') metadataUpdates.specialty = updates.specialty;
+      if (typeof updates.registrationCode === 'string') metadataUpdates.registrationCode = updates.registrationCode;
+
+      if (typeof updates.companyName === 'string') metadataUpdates.companyName = updates.companyName;
+      if (typeof updates.tradeName === 'string') metadataUpdates.tradeName = updates.tradeName;
+      if (typeof updates.cnpj === 'string') metadataUpdates.cnpj = updates.cnpj;
+      if (typeof updates.responsibleName === 'string') metadataUpdates.responsibleName = updates.responsibleName;
+      if (typeof updates.responsibleCpf === 'string') metadataUpdates.responsibleCpf = updates.responsibleCpf;
+
+      const { data: authUpdateData, error: authUpdateError } = await supabase.auth.updateUser({
+        data: metadataUpdates
+      });
+
+      if (authUpdateError || !authUpdateData.user) {
+        return { user: null, error: authUpdateError?.message || tableUpdateError?.message || 'Failed to update profile' };
+      }
+
+      const authUser = authUpdateData.user as SupabaseAuthUserLike;
+      const metadataUser = mapAuthUserToUserFromMetadata(authUser);
+      if (!metadataUser) {
+        return { user: null, error: 'Updated user profile is missing required fields' };
+      }
+
+      return { user: metadataUser, error: null };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unexpected update profile error';
+      return { user: null, error: errorMessage };
+    }
+  }
+};
+
 export const useAuthService = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const signUp = useCallback(async (data: SignUpData): Promise<AuthResponse> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            cpf: data.cpf,
-            phone: data.phone,
-            birth_date: data.birthDate,
-            user_type: data.userType
-          }
-        }
-      });
-
-      if (authError) {
-        setError(authError.message);
-        return { user: null, error: authError.message };
-      }
-
-      if (!authData.user) {
-        setError('Failed to create user');
-        return { user: null, error: 'Failed to create user' };
-      }
-
-      // Limpar dados antes de enviar para o banco de dados
-      const cleanPhone = data.phone ? data.phone.replace(/\D/g, '') : '';
-      const cleanCpf = data.cpf ? data.cpf.replace(/\D/g, '') : '';
-      const cleanCnpj = data.cnpj ? data.cnpj.replace(/\D/g, '') : '';
-      const cleanResponsibleCpf = data.responsibleCpf ? data.responsibleCpf.replace(/\D/g, '') : '';
-
-      // Create user profile in database using fetch direto
-      const profileResponse = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users', {
-        method: 'POST',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          id: authData.user.id,
-          email: data.email,
-          user_type: data.userType,
-          phone: cleanPhone,
-          // Campos específicos para profissionais
-          full_name: data.fullName,
-          cpf: cleanCpf,
-          birth_date: data.birthDate,
-          specialty: data.specialty,
-          registration_code: data.registrationCode,
-          // Campos específicos para empresas
-          company_name: data.companyName,
-          trade_name: data.tradeName,
-          cnpj: cleanCnpj,
-          responsible_name: data.responsibleName,
-          responsible_cpf: cleanResponsibleCpf,
-        })
-      });
-
-      const profileData = await profileResponse.json();
-      const profileError = !profileResponse.ok ? { message: profileData.message || 'Profile creation failed' } : null;
-
-      if (profileError) {
-        // If profile creation fails, we should clean up the auth user
-        try {
-          const { supabaseAdmin } = await import('./supabase');
-          await supabaseAdmin().auth.admin.deleteUser(authData.user.id);
-        } catch {
-          // Silent cleanup error
-        }
-        setError(profileError.message);
-        return { user: null, error: profileError.message };
-      }
-
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        user: null, 
-        error: errorMessage
-      };
+      const result = await authUtils.signUp(data);
+      setError(result.error);
+      return result;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const signIn = useCallback(async (data: SignInData): Promise<AuthResponse> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (authError) {
-        setError(authError.message);
-        return { user: null, error: authError.message };
-      }
-
-      if (!authData.user) {
-        setError('Login failed');
-        return { user: null, error: 'Login failed' };
-      }
-
-      // Get user profile from database using fetch direto
-      const profileResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${authData.user.id}&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${authData.session?.access_token || ''}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!profileResponse.ok) {
-        setError('Failed to load user profile');
-        return { user: null, error: 'Failed to load user profile' };
-      }
-
-      const profileDataArray = await profileResponse.json();
-      const profileData = profileDataArray[0];
-
-      if (!profileData) {
-        setError('User profile not found');
-        return { user: null, error: 'User profile not found' };
-      }
-
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        user: null, 
-        error: errorMessage
-      };
+      const result = await authUtils.signIn(data);
+      setError(result.error);
+      return result;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const signOut = useCallback(async (): Promise<{ error: string | null }> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { error: 'Server side execution not allowed' };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        setError(error.message);
-        return { error: error.message };
-      }
-
-      return { error: null };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { error: errorMessage };
+      const result = await authUtils.signOut();
+      setError(result.error);
+      return result;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const getCurrentUser = useCallback(async (): Promise<AuthResponse> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: null };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-
-      if (authError || !authUser) {
-        return { user: null, error: null }; // Não é um erro, apenas não há usuário logado
-      }
-
-      // Get user profile from database using fetch direto
-      const profileResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${authUser.id}&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${(authUser as { access_token?: string }).access_token || ''}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!profileResponse.ok) {
-        return { user: null, error: 'Failed to load user profile' };
-      }
-
-      const profileDataArray = await profileResponse.json();
-      const profileData = profileDataArray[0];
-
-      if (!profileData) {
-        return { user: null, error: 'User profile not found' };
-      }
-
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      return { 
-        user: null, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred'
-      };
+      const result = await authUtils.getCurrentUser();
+      setError(result.error);
+      return result;
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   const updateProfile = useCallback(async (userId: string, updates: ProfileUpdateData): Promise<AuthResponse> => {
+    setIsLoading(true);
+    setError(null);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      // Update user profile using fetch direto
-      // Filtrar campos vazios para evitar problemas de validação
-      const requestBody: Record<string, string> = {};
-      
-      // Campos comuns
-      if (updates.phone && updates.phone.trim()) {
-        // Limpar telefone removendo formatação
-        const cleanPhone = updates.phone.replace(/\D/g, '');
-        if (cleanPhone.length >= 10) {
-          requestBody.phone = cleanPhone;
-        }
-      }
-      if (updates.avatar && updates.avatar.trim()) {
-        requestBody.avatar = updates.avatar.trim();
-      }
-      
-      // Campos específicos para profissionais
-      if (updates.fullName && updates.fullName.trim()) {
-        requestBody.full_name = updates.fullName.trim();
-      }
-      if (updates.cpf && updates.cpf.trim()) {
-        // Limpar CPF removendo formatação (pontos, traços, espaços)
-        const cleanCpf = updates.cpf.replace(/\D/g, '');
-        if (cleanCpf.length === 11) {
-          requestBody.cpf = cleanCpf;
-        }
-      }
-      if (updates.birthDate && updates.birthDate.trim()) {
-        requestBody.birth_date = updates.birthDate.trim();
-      }
-      if (updates.specialty && updates.specialty.trim()) {
-        requestBody.specialty = updates.specialty.trim();
-      }
-      if (updates.registrationCode && updates.registrationCode.trim()) {
-        requestBody.registration_code = updates.registrationCode.trim();
-      }
-      
-      // Campos específicos para empresas
-      if (updates.companyName && updates.companyName.trim()) {
-        requestBody.company_name = updates.companyName.trim();
-      }
-      if (updates.tradeName && updates.tradeName.trim()) {
-        requestBody.trade_name = updates.tradeName.trim();
-      }
-      if (updates.cnpj && updates.cnpj.trim()) {
-        // Limpar CNPJ removendo formatação
-        const cleanCnpj = updates.cnpj.replace(/\D/g, '');
-        if (cleanCnpj.length === 14) {
-          requestBody.cnpj = cleanCnpj;
-        }
-      }
-      if (updates.responsibleName && updates.responsibleName.trim()) {
-        requestBody.responsible_name = updates.responsibleName.trim();
-      }
-      if (updates.responsibleCpf && updates.responsibleCpf.trim()) {
-        // Limpar CPF do responsável removendo formatação
-        const cleanCpf = updates.responsibleCpf.replace(/\D/g, '');
-        if (cleanCpf.length === 11) {
-          requestBody.responsible_cpf = cleanCpf;
-        }
-      }
-      
-      // Adicionar timestamp de atualização
-      requestBody.updated_at = new Date().toISOString();
-
-      console.log('UpdateProfile (hook) - Request URL:', `https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${userId}`);
-      console.log('UpdateProfile (hook) - Request Body:', requestBody);
-      console.log('UpdateProfile (hook) - Updates received:', updates);
-
-      const updateResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${userId}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      console.log('UpdateProfile (hook) - Response status:', updateResponse.status);
-      console.log('UpdateProfile (hook) - Response ok:', updateResponse.ok);
-
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        console.error('UpdateProfile (hook) - Error response:', errorData);
-        setError(errorData.message || 'Failed to update profile');
-        return { user: null, error: errorData.message || 'Failed to update profile' };
-      }
-
-      const dataArray = await updateResponse.json();
-      const data = dataArray[0];
-
-      if (!data) {
-        setError('Profile not found after update');
-        return { user: null, error: 'Profile not found after update' };
-      }
-
-      const user: User = {
-        id: data.id,
-        email: data.email,
-        userType: data.user_type,
-        phone: data.phone,
-        avatar: data.avatar,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-        // Campos específicos para profissionais
-        fullName: data.full_name,
-        cpf: data.cpf,
-        birthDate: data.birth_date,
-        specialty: data.specialty,
-        registrationCode: data.registration_code,
-        // Campos específicos para empresas
-        companyName: data.company_name,
-        tradeName: data.trade_name,
-        cnpj: data.cnpj,
-        responsibleName: data.responsible_name,
-        responsibleCpf: data.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setError(errorMessage);
-      return { 
-        user: null, 
-        error: errorMessage
-      };
+      const result = await authUtils.updateProfile(userId, updates);
+      setError(result.error);
+      return result;
     } finally {
       setIsLoading(false);
     }
@@ -458,448 +371,3 @@ export const useAuthService = () => {
   };
 };
 
-// Utility functions for direct use (without hooks)
-export const authUtils = {
-  async signUp(data: SignUpData): Promise<AuthResponse> {
-    try {
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          data: {
-            full_name: data.fullName,
-            cpf: data.cpf,
-            phone: data.phone,
-            birth_date: data.birthDate,
-            user_type: data.userType
-          }
-        }
-      });
-
-      if (authError) {
-        return { user: null, error: authError.message };
-      }
-
-      if (!authData.user) {
-        return { user: null, error: 'Failed to create user' };
-      }
-
-      // Limpar dados antes de enviar para o banco de dados
-      const cleanPhone = data.phone ? data.phone.replace(/\D/g, '') : '';
-      const cleanCpf = data.cpf ? data.cpf.replace(/\D/g, '') : '';
-      const cleanCnpj = data.cnpj ? data.cnpj.replace(/\D/g, '') : '';
-      const cleanResponsibleCpf = data.responsibleCpf ? data.responsibleCpf.replace(/\D/g, '') : '';
-
-      // Create user profile in database using fetch direto
-      const profileResponse = await fetch('https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users', {
-        method: 'POST',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          id: authData.user.id,
-          email: data.email,
-          user_type: data.userType,
-          phone: cleanPhone,
-          // Campos específicos para profissionais
-          full_name: data.fullName,
-          cpf: cleanCpf,
-          birth_date: data.birthDate,
-          specialty: data.specialty,
-          registration_code: data.registrationCode,
-          // Campos específicos para empresas
-          company_name: data.companyName,
-          trade_name: data.tradeName,
-          cnpj: cleanCnpj,
-          responsible_name: data.responsibleName,
-          responsible_cpf: cleanResponsibleCpf,
-        })
-      });
-
-      const profileData = await profileResponse.json();
-      const profileError = !profileResponse.ok ? { message: profileData.message || 'Profile creation failed' } : null;
-
-      if (profileError) {
-        // If profile creation fails, we should clean up the auth user
-        try {
-          const { supabaseAdmin } = await import('./supabase');
-          await supabaseAdmin().auth.admin.deleteUser(authData.user.id);
-        } catch {
-          // Silent cleanup error
-        }
-        return { user: null, error: profileError.message };
-      }
-
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      return { 
-        user: null, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
-    }
-  },
-
-  async signIn(data: SignInData): Promise<AuthResponse> {
-    try {
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      const supabase = getSupabaseAuthClient();
-      
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
-
-      if (authError) {
-        return { user: null, error: authError.message };
-      }
-
-      if (!authData.user) {
-        return { user: null, error: 'Login failed' };
-      }
-      console.log('authData.user.id:', authData.user.id);
-
-      // Get user profile from database using fetch direto
-      const profileResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${authData.user.id}&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${authData.session?.access_token || ''}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!profileResponse.ok) {
-        return { user: null, error: 'Failed to load user profile' };
-      }
-
-      const profileDataArray = await profileResponse.json();
-      const profileData = profileDataArray[0];
-
-      if (!profileData) {
-        return { user: null, error: 'User profile not found' };
-      }
-      console.log('profileData:', profileData);
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      return { 
-        user: null, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
-    }
-  },
-
-  async signOut(): Promise<{ error: string | null }> {
-    try {
-      console.log('authUtils.signOut - Iniciado');
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        console.log('authUtils.signOut - Server side execution not allowed');
-        return { error: 'Server side execution not allowed' };
-      }
-
-      console.log('authUtils.signOut - Fazendo sign out via fetch');
-      
-      const supabase = getSupabaseAuthClient();
-      const { error } = await supabase.auth.signOut();
-      console.log('authUtils.signOut - signOut concluído, error:', error);
-
-      if (error) {
-        console.log('authUtils.signOut - Erro no signOut:', error.message);
-        return { error: error.message };
-      }
-
-      console.log('authUtils.signOut - Sucesso, retornando null');
-      return { error: null };
-    } catch (error) {
-      console.log('authUtils.signOut - Exceção capturada:', error);
-      return { 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred' 
-      };
-    }
-  },
-
-  async getCurrentUser(): Promise<AuthResponse> {
-    try {
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: null };
-      }
-
-      console.log('authService.getCurrentUser - Iniciando...');
-      const supabase = getSupabaseAuthClient();
-      
-      // Primeiro, verificar se há uma sessão ativa
-      console.log('authService.getCurrentUser - Verificando sessão...');
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError) {
-        console.log('authService.getCurrentUser - Erro ao obter sessão:', sessionError);
-        return { user: null, error: sessionError.message };
-      }
-      
-      if (!session) {
-        console.log('authService.getCurrentUser - Nenhuma sessão ativa');
-        return { user: null, error: null };
-      }
-      
-      console.log('authService.getCurrentUser - Sessão encontrada, ID do usuário:', session.user.id);
-      
-      // Usar o ID da sessão para buscar o perfil
-      const profilePromise = fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${session.user.id}&select=*`, {
-        method: 'GET',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const profileTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout ao buscar perfil')), 10000)
-      );
-      
-      console.log('authService.getCurrentUser - Fazendo requisição para buscar perfil...');
-      const profileResponse = await Promise.race([profilePromise, profileTimeoutPromise]) as Response;
-
-      console.log('authService.getCurrentUser - Status da resposta do perfil:', profileResponse.status);
-
-      if (!profileResponse.ok) {
-        const errorText = await profileResponse.text();
-        console.log('authService.getCurrentUser - Erro na resposta:', errorText);
-        return { user: null, error: 'Failed to load user profile' };
-      }
-
-      const profileDataArray = await profileResponse.json();
-      console.log('authService.getCurrentUser - Dados do perfil recebidos:', profileDataArray.length, 'registros');
-      
-      const profileData = profileDataArray[0];
-
-      if (!profileData) {
-        console.log('authService.getCurrentUser - Perfil não encontrado no banco de dados');
-        return { user: null, error: 'User profile not found' };
-      }
-
-      console.log('authService.getCurrentUser - Perfil encontrado:', profileData.email);
-
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        userType: profileData.user_type,
-        phone: profileData.phone,
-        avatar: profileData.avatar,
-        createdAt: profileData.created_at,
-        updatedAt: profileData.updated_at,
-        // Campos específicos para profissionais
-        fullName: profileData.full_name,
-        cpf: profileData.cpf,
-        birthDate: profileData.birth_date,
-        specialty: profileData.specialty,
-        registrationCode: profileData.registration_code,
-        // Campos específicos para empresas
-        companyName: profileData.company_name,
-        tradeName: profileData.trade_name,
-        cnpj: profileData.cnpj,
-        responsibleName: profileData.responsible_name,
-        responsibleCpf: profileData.responsible_cpf,
-      };
-
-      console.log('authService.getCurrentUser - Usuário criado com sucesso:', user.fullName);
-      return { user, error: null };
-    } catch (error) {
-      console.log('authService.getCurrentUser - Erro capturado:', error);
-      return { 
-        user: null, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred'
-      };
-    }
-  },
-
-  async updateProfile(userId: string, updates: ProfileUpdateData): Promise<AuthResponse> {
-    try {
-      // Só executa no cliente
-      if (typeof window === 'undefined') {
-        return { user: null, error: 'Server side execution not allowed' };
-      }
-
-      // Update user profile using fetch direto
-      // Filtrar campos vazios para evitar problemas de validação
-      const requestBody: Record<string, string> = {};
-      
-      // Campos comuns
-      if (updates.phone && updates.phone.trim()) {
-        // Limpar telefone removendo formatação
-        const cleanPhone = updates.phone.replace(/\D/g, '');
-        if (cleanPhone.length >= 10) {
-          requestBody.phone = cleanPhone;
-        }
-      }
-      if (updates.avatar && updates.avatar.trim()) {
-        requestBody.avatar = updates.avatar.trim();
-      }
-      
-      // Campos específicos para profissionais
-      if (updates.fullName && updates.fullName.trim()) {
-        requestBody.full_name = updates.fullName.trim();
-      }
-      if (updates.cpf && updates.cpf.trim()) {
-        // Limpar CPF removendo formatação (pontos, traços, espaços)
-        const cleanCpf = updates.cpf.replace(/\D/g, '');
-        if (cleanCpf.length === 11) {
-          requestBody.cpf = cleanCpf;
-        }
-      }
-      if (updates.birthDate && updates.birthDate.trim()) {
-        requestBody.birth_date = updates.birthDate.trim();
-      }
-      if (updates.specialty && updates.specialty.trim()) {
-        requestBody.specialty = updates.specialty.trim();
-      }
-      if (updates.registrationCode && updates.registrationCode.trim()) {
-        requestBody.registration_code = updates.registrationCode.trim();
-      }
-      
-      // Campos específicos para empresas
-      if (updates.companyName && updates.companyName.trim()) {
-        requestBody.company_name = updates.companyName.trim();
-      }
-      if (updates.tradeName && updates.tradeName.trim()) {
-        requestBody.trade_name = updates.tradeName.trim();
-      }
-      if (updates.cnpj && updates.cnpj.trim()) {
-        // Limpar CNPJ removendo formatação
-        const cleanCnpj = updates.cnpj.replace(/\D/g, '');
-        if (cleanCnpj.length === 14) {
-          requestBody.cnpj = cleanCnpj;
-        }
-      }
-      if (updates.responsibleName && updates.responsibleName.trim()) {
-        requestBody.responsible_name = updates.responsibleName.trim();
-      }
-      if (updates.responsibleCpf && updates.responsibleCpf.trim()) {
-        // Limpar CPF do responsável removendo formatação
-        const cleanCpf = updates.responsibleCpf.replace(/\D/g, '');
-        if (cleanCpf.length === 11) {
-          requestBody.responsible_cpf = cleanCpf;
-        }
-      }
-      
-      // Adicionar timestamp de atualização
-      requestBody.updated_at = new Date().toISOString();
-
-      console.log('UpdateProfile (utils) - Request URL:', `https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${userId}`);
-      console.log('UpdateProfile (utils) - Request Body:', requestBody);
-      console.log('UpdateProfile (utils) - Updates received:', updates);
-
-      const updateResponse = await fetch(`https://nmxcqiwslkuvdydlsolm.supabase.co/rest/v1/users?id=eq.${userId}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      console.log('UpdateProfile (utils) - Response status:', updateResponse.status);
-      console.log('UpdateProfile (utils) - Response ok:', updateResponse.ok);
-
-      if (!updateResponse.ok) {
-        const errorData = await updateResponse.json();
-        console.error('UpdateProfile (utils) - Error response:', errorData);
-        return { user: null, error: errorData.message || 'Failed to update profile' };
-      }
-
-      const dataArray = await updateResponse.json();
-      const data = dataArray[0];
-
-      if (!data) {
-        return { user: null, error: 'Profile not found after update' };
-      }
-
-      const user: User = {
-        id: data.id,
-        email: data.email,
-        userType: data.user_type,
-        phone: data.phone,
-        avatar: data.avatar,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-        // Campos específicos para profissionais
-        fullName: data.full_name,
-        cpf: data.cpf,
-        birthDate: data.birth_date,
-        specialty: data.specialty,
-        registrationCode: data.registration_code,
-        // Campos específicos para empresas
-        companyName: data.company_name,
-        tradeName: data.trade_name,
-        cnpj: data.cnpj,
-        responsibleName: data.responsible_name,
-        responsibleCpf: data.responsible_cpf,
-      };
-
-      return { user, error: null };
-    } catch (error) {
-      return { 
-        user: null, 
-        error: error instanceof Error ? error.message : 'An unexpected error occurred'
-      };
-    }
-  }
-};

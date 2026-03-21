@@ -1,6 +1,23 @@
-// Configuração do Supabase com valores hardcoded para debug
-export const SUPABASE_CONFIG = {
-  url: 'https://nmxcqiwslkuvdydlsolm.supabase.co',
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxOTg3NTEsImV4cCI6MjA3Mzc3NDc1MX0.K8NfXbU_rTnCT86v8hzKryfeguL5MGV2s17L7OH4JGw',
-  serviceRoleKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5teGNxaXdzbGt1dmR5ZGxzb2xtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODE5ODc1MSwiZXhwIjoyMDczNzc0NzUxfQ.PYA1g3dYA9bMwWyj66B48g6alyl-Oi_XNEPM8oM2gJ0'
+import { createClient } from '@supabase/supabase-js';
+
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const getRequiredValue = (value: string | undefined, name: string): string => {
+  if (!value) throw new Error(`Missing environment variable: ${name}`);
+  return value;
 };
+
+export const createAnonSupabaseClient = () => {
+  const url = getRequiredValue(NEXT_PUBLIC_SUPABASE_URL, 'NEXT_PUBLIC_SUPABASE_URL');
+  const anonKey = getRequiredValue(NEXT_PUBLIC_SUPABASE_ANON_KEY, 'NEXT_PUBLIC_SUPABASE_ANON_KEY');
+  return createClient(url, anonKey);
+};
+
+export const createServiceRoleSupabaseClient = () => {
+  const url = getRequiredValue(NEXT_PUBLIC_SUPABASE_URL, 'NEXT_PUBLIC_SUPABASE_URL');
+  const serviceRoleKey = getRequiredValue(SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY');
+  return createClient(url, serviceRoleKey);
+};
+

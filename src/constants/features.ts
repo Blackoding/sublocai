@@ -8,7 +8,9 @@ export const getFeatureInfo = (feature: SublocationPlus) => {
     bathroom: { icon: '🚿', label: 'Banheiro' },
     parking: { icon: '🅿️', label: 'Estacionamento Fácil' },
     microwave: { icon: '📱', label: 'Microondas' },
-    refrigerator: { icon: '🧊', label: 'Refrigerador' }
+    refrigerator: { icon: '🧊', label: 'Refrigerador' },
+    guardVolume: { icon: '📦', label: 'Guarde Volume' },
+    receptionist: { icon: '🛎️', label: 'Recepcionista' }
   };
   return features[feature];
 };
@@ -20,5 +22,7 @@ export const ALL_FEATURES = [
   { value: 'bathroom' as SublocationPlus, label: 'Banheiro' },
   { value: 'parking' as SublocationPlus, label: 'Estacionamento Fácil' },
   { value: 'microwave' as SublocationPlus, label: 'Microondas' },
-  { value: 'refrigerator' as SublocationPlus, label: 'Refrigerador' }
+  { value: 'refrigerator' as SublocationPlus, label: 'Refrigerador' },
+  { value: 'guardVolume' as SublocationPlus, label: 'Guarde Volume' },
+  { value: 'receptionist' as SublocationPlus, label: 'Recepcionista' }
 ] as const;

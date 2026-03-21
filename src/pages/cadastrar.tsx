@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Button from '@/components/Button';
@@ -8,9 +8,15 @@ import UserTypeSelector from '@/components/UserTypeSelector';
 import Select from '@/components/Select';
 import { SPECIALTIES, getSpecialtyRegistrationCode } from '@/constants/specialties';
 import { isValidCPF, isValidCNPJ } from '@/lib/validation';
+import { useAuthStore } from '@/stores/authStore';
+import { useToastStore } from '@/stores/toastStore';
+
+type PaymentMethod = 'pix' | 'card';
 
 const CadastrarPage = () => {
   const router = useRouter();
+  const user = useAuthStore((state) => state.user);
+  const showToast = useToastStore((state) => state.showToast);
   const [formData, setFormData] = useState({
     // Campos comuns
     email: '',
@@ -31,13 +37,24 @@ const CadastrarPage = () => {
     nomeFantasia: '',
     cnpj: '',
     responsavel: '',
-    cpfResponsavel: ''
+    cpfResponsavel: '',
+    planoEmpresa: 'basic' as 'free' | 'basic' | 'pro'
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [showEmailConfirmationModal, setShowEmailConfirmationModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState<'basic' | 'pro' | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [activePaymentMethod, setActivePaymentMethod] = useState<PaymentMethod | null>(null);
+  const [isLoadingPix, setIsLoadingPix] = useState(false);
+  const [isLoadingCardCheckout, setIsLoadingCardCheckout] = useState(false);
+  const [pixCode, setPixCode] = useState('');
+  const [pixQrSrc, setPixQrSrc] = useState('');
+  const [pixExpiresAt, setPixExpiresAt] = useState('');
+  const [createdUserId, setCreatedUserId] = useState<string | null>(null);
 
   // Refs para os campos do formulário
   const fieldRefs = {
@@ -170,6 +187,10 @@ const CadastrarPage = () => {
 
     // Validações específicas para empresa
     if (formData.tipoUsuario === 'company') {
+      if (!formData.planoEmpresa) {
+        newErrors.planoEmpresa = 'Selecione um plano para sua empresa';
+      }
+
       // Razão Social
       if (!formData.razaoSocial.trim()) {
         newErrors.razaoSocial = 'Razão social é obrigatória';
@@ -297,7 +318,8 @@ const CadastrarPage = () => {
           tradeName: formData.nomeFantasia,
           cnpj: formData.cnpj,
           responsibleName: formData.responsavel,
-          responsibleCpf: formData.cpfResponsavel
+          responsibleCpf: formData.cpfResponsavel,
+          planEmpresa: formData.planoEmpresa
         })
       };
 
@@ -314,8 +336,22 @@ const CadastrarPage = () => {
         });
       } else {
         console.log('✅ Cadastro bem-sucedido:', user);
-        // Cadastro bem-sucedido - mostrar modal de confirmação de e-mail
-        setShowEmailConfirmationModal(true);
+        const selectedPlan =
+          formData.tipoUsuario === 'company' &&
+          (formData.planoEmpresa === 'basic' || formData.planoEmpresa === 'pro')
+            ? formData.planoEmpresa
+            : null;
+
+        setCreatedUserId(user.id);
+
+        if (selectedPlan) {
+          setPaymentError(null);
+          setPaymentPlan(selectedPlan);
+          setShowPaymentModal(true);
+          setShowEmailConfirmationModal(false);
+        } else {
+          setShowEmailConfirmationModal(true);
+        }
       }
     } catch (error) {
       console.error('💥 Erro inesperado no handleConfirmRegistration:', error);
@@ -335,9 +371,107 @@ const CadastrarPage = () => {
 
   const handleEmailConfirmationClose = () => {
     setShowEmailConfirmationModal(false);
-    // Redirecionar para a página de login após fechar o modal
     router.push('/entrar');
   };
+
+  const resetPaymentFlow = useCallback(() => {
+    setActivePaymentMethod(null);
+    setPaymentError(null);
+    setIsLoadingPix(false);
+    setIsLoadingCardCheckout(false);
+    setPixCode('');
+    setPixQrSrc('');
+    setPixExpiresAt('');
+  }, []);
+
+  const createAbacatePayment = useCallback(
+    async (method: PaymentMethod) => {
+      if (!paymentPlan) throw new Error('Plano não selecionado');
+      const response = await fetch('/api/payments/abacate/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          plan: paymentPlan,
+          method,
+          userId: createdUserId || user?.id || undefined
+        })
+      });
+
+      const json = (await response.json()) as {
+        data?:
+          | {
+              method: 'card';
+              checkoutUrl: string;
+            }
+          | {
+              method: 'pix';
+              pixQrCodeId: string;
+              brCode: string;
+              brCodeBase64: string;
+              expiresAt?: string;
+            };
+        error?: string;
+      };
+
+      if (!response.ok || !json.data) {
+        throw new Error(json.error || 'Falha ao gerar pagamento');
+      }
+
+      return json.data;
+    },
+    [paymentPlan, createdUserId, user?.id]
+  );
+
+  const handleCopyPixCode = useCallback(async () => {
+    if (!pixCode) return;
+    try {
+      await navigator.clipboard.writeText(pixCode);
+      showToast('Código Pix copiado com sucesso!', 'success');
+    } catch {
+      showToast('Não foi possível copiar o código Pix.', 'error');
+    }
+  }, [pixCode, showToast]);
+
+  const openPaymentCheckout = useCallback(
+    async (method: PaymentMethod) => {
+      if (!paymentPlan) return;
+      setPaymentError(null);
+      setPixCode('');
+      setPixQrSrc('');
+      setPixExpiresAt('');
+
+      if (method === 'pix') {
+        setActivePaymentMethod('pix');
+        setIsLoadingPix(true);
+      } else {
+        setActivePaymentMethod('card');
+        setIsLoadingCardCheckout(true);
+      }
+
+      try {
+        const data = await createAbacatePayment(method);
+        if (method === 'pix') {
+          if (data.method !== 'pix') throw new Error('Resposta inválida para PIX');
+          setPixCode(data.brCode);
+          setPixQrSrc(data.brCodeBase64);
+          setPixExpiresAt(data.expiresAt || '');
+          setIsLoadingPix(false);
+          return;
+        }
+
+        if (data.method !== 'card') throw new Error('Resposta inválida para cartão');
+        window.location.href = data.checkoutUrl;
+      } catch (error) {
+        setPaymentError(error instanceof Error ? error.message : 'Falha ao gerar pagamento');
+      } finally {
+        setIsLoadingPix(false);
+        setIsLoadingCardCheckout(false);
+      }
+    },
+    [createAbacatePayment, paymentPlan]
+  );
 
 
   return (
@@ -448,6 +582,57 @@ const CadastrarPage = () => {
                 <div className="border-b border-gray-200 pb-4 mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Dados da Empresa</h3>
                   <p className="text-sm text-gray-600">Informações da sua clínica ou instituição</p>
+                </div>
+
+                <div className="border-t border-gray-200 pt-6 mt-6">
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Plano para Empresa</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, planoEmpresa: 'free' }))}
+                      className={`p-4 rounded-2xl border transition-colors text-left ${
+                        formData.planoEmpresa === 'free'
+                          ? 'border-[#2b9af3] bg-blue-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-sm text-gray-500">Gratuito</div>
+                      <div className="text-2xl font-bold text-gray-900 mt-1">R$0</div>
+                      <div className="text-xs text-gray-500 mt-1">/mês</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, planoEmpresa: 'basic' }))}
+                      className={`p-4 rounded-2xl border transition-colors text-left ${
+                        formData.planoEmpresa === 'basic'
+                          ? 'border-[#2b9af3] bg-blue-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-sm text-gray-500">Básico</div>
+                      <div className="text-2xl font-bold text-gray-900 mt-1">R$39</div>
+                      <div className="text-xs text-gray-500 mt-1">/mês</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, planoEmpresa: 'pro' }))}
+                      className={`p-4 rounded-2xl border transition-colors text-left ${
+                        formData.planoEmpresa === 'pro'
+                          ? 'border-[#2b9af3] bg-blue-50'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="text-sm text-gray-500">Avançado</div>
+                      <div className="text-2xl font-bold text-gray-900 mt-1">R$79</div>
+                      <div className="text-xs text-gray-500 mt-1">/mês</div>
+                    </button>
+                  </div>
+
+                  {errors.planoEmpresa && (
+                    <p className="text-red-500 text-sm mt-2">{errors.planoEmpresa}</p>
+                  )}
                 </div>
 
                 <Input
@@ -721,6 +906,123 @@ const CadastrarPage = () => {
               Não recebeu o e-mail? Verifique sua pasta de spam ou aguarde alguns minutos.
             </p>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showPaymentModal}
+        onClose={() => {
+          setShowPaymentModal(false);
+          resetPaymentFlow();
+          setShowEmailConfirmationModal(true);
+        }}
+        title="Assinatura do Plano"
+        subtitle="Finalize o pagamento via PIX ou Cartão de crédito"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+            Plano selecionado: <span className="font-semibold text-gray-900">{paymentPlan === 'pro' ? 'Avançado' : 'Básico'}</span>
+          </div>
+
+          {activePaymentMethod === null && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Button
+                onClick={() => openPaymentCheckout('pix')}
+                variant="primary"
+                size="lg"
+                className="w-full bg-black text-white hover:bg-black"
+              >
+                Pagar via PIX
+              </Button>
+
+              <Button
+                onClick={() => openPaymentCheckout('card')}
+                variant="secondary"
+                size="lg"
+                className="w-full bg-gray-900 text-white hover:bg-gray-900"
+              >
+                Pagar via Cartão de crédito
+              </Button>
+            </div>
+          )}
+
+          {activePaymentMethod === 'pix' && (
+            <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+              {isLoadingPix ? (
+                <p className="text-sm text-gray-700">Gerando PIX...</p>
+              ) : pixQrSrc ? (
+                <div className="flex flex-col sm:flex-row gap-6 items-start">
+                  <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-white p-4">
+                    <img src={pixQrSrc} alt="QR Code Pix" className="w-[240px] h-[240px]" />
+                  </div>
+
+                  <div className="flex-1 w-full">
+                    {pixCode ? (
+                      <div className="bg-white rounded-xl border border-gray-200 p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">Copie e cole o código</p>
+                            <p className="text-xs text-gray-500 mt-1">O código pode conter caracteres especiais.</p>
+                          </div>
+                          <Button
+                            onClick={handleCopyPixCode}
+                            variant="primary"
+                            size="md"
+                            className="bg-[#2b9af3] hover:bg-[#1e7ce6] text-white border-[#2b9af3] hover:border-[#1e7ce6] shrink-0"
+                          >
+                            Copiar
+                          </Button>
+                        </div>
+
+                        <div className="mt-4">
+                          <input
+                            readOnly
+                            value={pixCode}
+                            onFocus={(e) => e.currentTarget.select()}
+                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                          />
+                        </div>
+
+                        {pixExpiresAt && (
+                          <p className="text-xs text-gray-500 mt-3">
+                            Expira em: {new Date(pixExpiresAt).toLocaleString('pt-BR')}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-700">Código Pix não configurado no momento.</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-700">QR Code Pix não configurado no momento.</p>
+              )}
+            </div>
+          )}
+
+          {activePaymentMethod === 'card' && (
+            <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-gray-700">
+                  Você será redirecionado na mesma aba para o checkout seguro da AbacatePay.
+                </p>
+                <Button
+                  onClick={() => openPaymentCheckout('card')}
+                  disabled={isLoadingCardCheckout}
+                  variant="primary"
+                  size="lg"
+                  className="bg-black hover:bg-black text-white border-black disabled:bg-gray-300 disabled:text-gray-600 disabled:border-gray-300"
+                >
+                  {isLoadingCardCheckout ? 'Gerando checkout...' : 'Pagar com cartão'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {paymentError && (
+            <p className="text-red-600 text-sm">{paymentError}</p>
+          )}
         </div>
       </Modal>
     </div>

@@ -3,6 +3,7 @@ import { GetServerSideProps } from 'next';
 import { useState } from 'react';
 import Head from 'next/head';
 import Image from 'next/image';
+import Link from 'next/link';
 import { SublocationPlus, Clinic } from '@/types';
 import SublocationCard from '@/components/SublocationCard';
 import Button from '@/components/Button';
@@ -10,16 +11,15 @@ import AppointmentModal from '@/components/AppointmentModal';
 // import AuthWarning from '@/components/AuthWarning';
 // import GoogleMap from '@/components/GoogleMap';
 import CommentsSection from '@/components/CommentsSection';
-import { getSupabaseClient } from '@/services/supabase';
-import { AppointmentService } from '@/services/appointmentService';
 // import { SPECIALTIES } from '@/constants/specialties';
 import { getFeatureInfo } from '@/constants/features';
 import { formatDetailedAddress, formatAvailability } from '@/constants/address';
 import { useSpecialties } from '@/hooks/useSpecialties';
-import { useOwner } from '@/hooks/useOwner';
 import { BackButton } from '@/components/BackButton';
-import { useClinicRating } from '@/hooks/useClinicRating';
+import { createAnonSupabaseClient } from '@/config/supabase';
 import { useAuthStore } from '@/stores/authStore';
+import { AppointmentService } from '@/services/appointmentService';
+import { useToastStore } from '@/stores/toastStore';
 
 // Usar a interface Clinic centralizada dos tipos
 type Consultorio = Clinic;
@@ -34,125 +34,67 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [existingAppointments, setExistingAppointments] = useState<{ date: string; time: string; status: string }[]>([]);
-  
-  // Hook para autenticação
-  const { isAuthenticated, user } = useAuthStore();
-  
-  // Hook para calcular rating do consultório
-  const { rating } = useClinicRating(consultorio.id);
+
+  const baseRating =
+    typeof consultorio.rating === 'number' ? consultorio.rating : 0;
+  const [rating, setRating] = useState<number>(baseRating > 0 ? baseRating : 5);
   
   // Hook para especialidades
   const { getSpecialtyLabel } = useSpecialties();
-  
-  // Hook para obter informações do proprietário
-  const { owner, isLoading: ownerLoading } = useOwner(consultorio.user_id);
 
-  // Função auxiliar para verificar se deve usar WhatsApp
-  const shouldUseWhatsApp = () => {
-    // Se undefined, null ou não definido, assume false (não usar WhatsApp)
-    if (consultorio.hasAppointment === undefined || consultorio.hasAppointment === null) {
-      return false; // Não usar WhatsApp se não estiver definido
-    }
-    return consultorio.hasAppointment === false || String(consultorio.hasAppointment) === 'false';
-  };
+  const { isAuthenticated, user } = useAuthStore();
+  const showToast = useToastStore((state) => state.showToast);
+  const canEdit = isAuthenticated && user?.id === consultorio.user_id;
 
-  // Função para gerar link do WhatsApp
-  const generateWhatsAppLink = () => {
-    if (!owner?.phone) return '#';
-    
-    // Limpar o telefone (remover caracteres especiais)
-    const cleanPhone = owner.phone.replace(/\D/g, '');
-    
-    // Adicionar código do país se não tiver
-    const phoneWithCountryCode = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    
-    // Mensagem padrão
-    const message = `Olá! Gostaria de solicitar um agendamento para o consultório "${consultorio.title}". Poderia me informar sobre a disponibilidade?`;
-    
-    return `https://wa.me/${phoneWithCountryCode}?text=${encodeURIComponent(message)}`;
-  };
+  const owner: { phone: string } | null = null;
+  const ownerLoading = false;
 
-  // Função para buscar agendamentos existentes
-  const loadExistingAppointments = async () => {
-    if (!consultorio.id) return;
-    
-    try {
-      const { AppointmentService } = await import('@/services/appointmentService');
-      const result = await AppointmentService.getAppointmentsByClinic(consultorio.id);
-      
-      if (result.data) {
-        const appointments = result.data.map(apt => ({
-          date: apt.date,
-          time: apt.time,
-          status: apt.status
-        }));
-        setExistingAppointments(appointments);
-        console.log('Agendamentos existentes carregados:', appointments);
-      }
-    } catch (error) {
-      console.error('Erro ao carregar agendamentos existentes:', error);
-    }
-  };
+  const shouldUseWhatsApp = () => false;
+
+  const generateWhatsAppLink = () => '#';
 
   // Função para abrir o modal de agendamento
   const handleOpenAppointmentModal = () => {
+    if (!consultorio.id) return;
+
+    AppointmentService.getAppointmentsByClinic(consultorio.id).then((result) => {
+      if (result.data) {
+        setExistingAppointments(
+          result.data.map((appointment) => ({
+            date: appointment.date,
+            time: appointment.time,
+            status: appointment.status
+          }))
+        );
+      }
+    });
+
     setIsAppointmentModalOpen(true);
-    loadExistingAppointments();
   };
 
   // Função para lidar com o agendamento
   const handleAppointmentSubmit = async (appointmentData: { date: string; selectedTimes: string[]; notes?: string }) => {
-    try {
-      // Verificar se o usuário está logado
-      if (!isAuthenticated) {
-        alert('Você precisa estar logado para fazer um agendamento.');
-        return;
-      }
-
-      if (!user) {
-        alert('Erro: Dados do usuário não encontrados. Faça login novamente.');
-        return;
-      }
-
-      // Processar múltiplos horários selecionados
-      const selectedTimes = appointmentData.selectedTimes || [];
-      
-      if (selectedTimes.length === 0) {
-        alert('Por favor, selecione pelo menos um horário.');
-        return;
-      }
-
-      // Criar múltiplos agendamentos usando o novo serviço
-      const appointmentDataToSend = {
-        clinic_id: consultorio.id || '',
-        user_id: user.id || '',
-        date: appointmentData.date || '',
-        selected_times: selectedTimes,
-        notes: appointmentData.notes || '',
-        value: consultorio.price
-      };
-
-      const result = await AppointmentService.createAppointments(appointmentDataToSend);
-      
-      if (result.error) {
-        console.error('Erro ao criar agendamentos:', result.error);
-        alert(`Erro ao criar agendamentos: ${result.error}`);
-        return;
-      }
-
-      // Sucesso
-      const timesText = selectedTimes.join(', ');
-      const totalValue = consultorio.price * selectedTimes.length;
-      alert(`✅ Agendamento criado com sucesso!\n\nData: ${appointmentData.date}\nHorários: ${timesText}\nValor total: R$ ${totalValue.toFixed(2).replace('.', ',')}\n\nVocê receberá uma confirmação por email.`);
-      
-      // Fechar o modal
-      setIsAppointmentModalOpen(false);
-      
-      console.log('Agendamentos criados com sucesso:', result.data);
-    } catch (error) {
-      console.error('Erro ao criar agendamento:', error);
-      alert('Erro ao criar agendamento. Tente novamente.');
+    if (!isAuthenticated || !user?.id || !consultorio.id) {
+      showToast('Você precisa estar logado para agendar.', 'error');
+      return;
     }
+
+    const result = await AppointmentService.createAppointments({
+      clinicId: consultorio.id,
+      userId: user.id,
+      date: appointmentData.date,
+      selectedTimes: appointmentData.selectedTimes,
+      notes: appointmentData.notes,
+      valuePerSession: consultorio.price
+    });
+
+    if (result.error) {
+      showToast(result.error, 'error');
+      return;
+    }
+
+    showToast('Agendamento criado com sucesso!', 'success');
+    setIsAppointmentModalOpen(false);
   };
 
 
@@ -236,8 +178,16 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
       <div className="min-h-screen bg-gray-50">
         {/* Header com botão voltar */}
         <div className="bg-white shadow-sm border-b mt-16">
-          <div className="max-w-6xl mx-auto px-4 py-4">
+          <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
             <BackButton />
+            {canEdit && consultorio.id && (
+              <Link
+                href={`/consultorio/editar/${consultorio.id}`}
+                className="bg-[#2b9af3] hover:bg-[#1e7ce6] text-white px-4 py-2 rounded-lg transition-colors duration-200 font-medium"
+              >
+                Editar consultório
+              </Link>
+            )}
           </div>
         </div>
 
@@ -563,6 +513,7 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
           <CommentsSection 
             clinicId={consultorio.id || ''}
             clinicTitle={consultorio.title}
+            onRatingComputed={setRating}
           />
         </div>
 
@@ -592,91 +543,133 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     };
   }
 
+  type ClinicRow = {
+    id: string;
+    user_id: string;
+    title: string;
+    description: string;
+    cep?: string | null;
+    street?: string | null;
+    number?: string | null;
+    neighborhood?: string | null;
+    complement?: string | null;
+    city: string;
+    state: string;
+    zip_code?: string | null;
+    price: number | string;
+    specialty?: string | null;
+    specialties?: string[] | null;
+    images?: string[] | null;
+    features?: string[] | null;
+    google_maps_url?: string | null;
+    availability?: unknown;
+    hasappointment?: boolean | null;
+    status?: string | null;
+    views?: number | null;
+    bookings?: number | null;
+    rating?: number | string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
+  };
+
+  const parseNumber = (value: unknown): number => {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const normalized = value.replace(',', '.');
+      const parsed = parseFloat(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    return 0;
+  };
+
+  const normalizeStringArray = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === 'string');
+  };
+
+  const normalizeAvailability = (value: unknown): Clinic['availability'] => {
+    if (!Array.isArray(value)) return undefined;
+    const normalized = value
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const obj = item as { id?: string; day?: string; startTime?: string; endTime?: string };
+
+        if (!obj.day || !obj.startTime || !obj.endTime) return null;
+
+        return {
+          id: obj.id || '',
+          day: obj.day,
+          startTime: obj.startTime,
+          endTime: obj.endTime
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    return normalized.length > 0 ? normalized : undefined;
+  };
+
   try {
-    const supabase = getSupabaseClient();
-    
-    // Buscar consultório pelo ID
-    const { data: clinic, error } = await supabase
+    const supabase = createAnonSupabaseClient();
+
+    const { data, error } = await supabase
       .from('clinics')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (error || !clinic) {
-      return {
-        notFound: true,
-      };
+    if (error || !data) {
+      return { notFound: true };
     }
 
+    const row = data as ClinicRow;
 
-    // Verificar se há disponibilidade configurada
-    const hasAvailability = clinic.availability && 
-      Array.isArray(clinic.availability) && 
-      clinic.availability.length > 0 &&
-      clinic.availability.some((item: { day: string; startTime: string; endTime: string }) => 
-        item && 
-        item.day && 
-        item.startTime && 
-        item.endTime
-      );
+    const images = normalizeStringArray(row.images);
+    const features = normalizeStringArray(row.features);
+    const specialties = normalizeStringArray(row.specialties);
 
-    // Verificar se o usuário está logado
-    let currentUserId: string | null = null;
-    try {
-      // Tentar obter o usuário atual através do cookie de sessão
-      const userPromise = supabase.auth.getUser();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout ao obter usuário')), 3000)
-      );
-      
-      const { data: { user } } = await Promise.race([userPromise, timeoutPromise]) as { data: { user: { id: string } | null } };
-      currentUserId = user?.id || null;
-    } catch {
-      // Se não conseguir obter o usuário, currentUserId permanece null
-      // console.log('Usuário não logado ou erro de autenticação:', authError);
-    }
+    const availability = normalizeAvailability(row.availability) || [];
+    const hasAvailability = availability.length > 0;
+    const nowIso = new Date().toISOString();
 
-    // Incrementar visualizações apenas se:
-    // 1. O usuário não estiver logado, OU
-    // 2. O usuário estiver logado mas for diferente do proprietário do consultório
-    const shouldIncrementViews = !currentUserId || currentUserId !== clinic.user_id;
-    
-    if (shouldIncrementViews) {
-      // console.log(`Incrementando visualizações para consultório ${id}. Usuário atual: ${currentUserId}, Proprietário: ${clinic.user_id}`);
-      await supabase
-        .from('clinics')
-        .update({ views: (clinic.views || 0) + 1 })
-        .eq('id', id);
-    } else {
-      // console.log(`Não incrementando visualizações para consultório ${id}. Usuário atual é o proprietário.`);
-    }
-
-    // Formatar dados para a interface
-    const consultorio: Consultorio = {
-      ...clinic,
-      // Adicionar campos de compatibilidade
-      plus: clinic.features as SublocationPlus[],
-      availability: clinic.availability || [],
-      // Garantir que todos os campos sejam serializáveis
-      specialties: clinic.specialties || [],
-      features: clinic.features || [],
-      images: clinic.images || [],
-      // Mapear explicitamente o campo hasAppointment (vem como hasappointment do banco)
-      hasAppointment: clinic.hasappointment !== undefined ? clinic.hasappointment : true
-    };
-
+    const consultorio = {
+      id: row.id,
+      user_id: row.user_id,
+      title: row.title,
+      description: row.description,
+      cep: row.cep ?? null,
+      street: row.street ?? null,
+      number: row.number ?? null,
+      neighborhood: row.neighborhood ?? null,
+      complement: row.complement ?? null,
+      city: row.city,
+      state: row.state,
+      zip_code: row.zip_code ?? null,
+      price: parseNumber(row.price),
+      specialty: row.specialty || '',
+      specialties,
+      images,
+      features,
+      google_maps_url: row.google_maps_url ?? null,
+      availability,
+      hasAppointment:
+        typeof row.hasappointment === 'boolean' ? row.hasappointment : null,
+      status: (row.status as Clinic['status']) || null,
+      views: typeof row.views === 'number' ? row.views : 0,
+      bookings: typeof row.bookings === 'number' ? row.bookings : 0,
+      rating:
+        row.rating !== null && row.rating !== undefined ? parseNumber(row.rating) : null,
+      created_at: row.created_at || nowIso,
+      updated_at: row.updated_at || nowIso
+    } as unknown as Consultorio;
 
     return {
       props: {
         consultorio,
-        hasAvailability,
-      },
+        hasAvailability
+      }
     };
   } catch {
-    // console.error('Erro no getServerSideProps:', error);
-    return {
-      notFound: true,
-    };
+    return { notFound: true };
   }
 };
 

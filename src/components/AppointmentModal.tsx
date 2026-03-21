@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Modal from '@/components/Modal';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
@@ -7,7 +7,7 @@ import Checkbox from '@/components/Checkbox';
 interface AppointmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (appointmentData: AppointmentFormData) => void;
+  onSubmit: (appointmentData: AppointmentFormData) => Promise<void>;
   clinicTitle: string;
   clinicPrice: number;
   clinicAvailability?: { id: string; day: string; startTime: string; endTime: string }[];
@@ -30,6 +30,11 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   clinicAvailability = [],
   existingAppointments = []
 }) => {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const [currentMonth, setCurrentMonth] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1)
+  );
   const [formData, setFormData] = useState<AppointmentFormData>({
     date: '',
     selectedTimes: [],
@@ -38,6 +43,22 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableTimeSlots, setAvailableTimeSlots] = useState<{ value: string; label: string; disabled: boolean }[]>([]);
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const monthNames = [
+    'Janeiro',
+    'Fevereiro',
+    'Março',
+    'Abril',
+    'Maio',
+    'Junho',
+    'Julho',
+    'Agosto',
+    'Setembro',
+    'Outubro',
+    'Novembro',
+    'Dezembro'
+  ];
+  const availableDaysSet = new Set(clinicAvailability.map((item) => item.day));
 
   // Gerenciar scroll do body quando modal abre/fecha
   useEffect(() => {
@@ -72,6 +93,13 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (isOpen) {
+      const now = new Date();
+      setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+    }
+  }, [isOpen]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -94,20 +122,10 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   };
 
   const handleInputChange = (field: keyof AppointmentFormData, value: string | boolean) => {
-    setFormData(prev => {
-      const newData = {
-        ...prev,
-        [field]: value
-      };
-      
-      // Se a data mudou, resetar os horários selecionados e calcular disponibilidade
-      if (field === 'date') {
-        newData.selectedTimes = [];
-        calculateAvailableTimeSlots(value as string);
-      }
-      
-      return newData;
-    });
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   const handleTimeSelection = (time: string, checked: boolean) => {
@@ -128,6 +146,62 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     return days[date.getDay()];
   };
 
+  const getDayOfWeekByDate = (date: Date): string => {
+    const days = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+    return days[date.getDay()];
+  };
+
+  const formatDateToIso = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const isDateSelectable = (date: Date): boolean => {
+    const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const dayKey = getDayOfWeekByDate(normalizedDate);
+    return normalizedDate >= todayStart && availableDaysSet.has(dayKey);
+  };
+
+  const selectDate = (date: Date) => {
+    if (!isDateSelectable(date)) return;
+    const isoDate = formatDateToIso(date);
+    setFormData(prev => ({
+      ...prev,
+      date: isoDate,
+      selectedTimes: []
+    }));
+    calculateAvailableTimeSlots(isoDate);
+  };
+
+  const goToPreviousMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const goToNextMonth = () => {
+    setCurrentMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const getCalendarDays = (): (Date | null)[] => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const leadingBlanks = firstDay.getDay();
+    const days: (Date | null)[] = [];
+
+    for (let i = 0; i < leadingBlanks; i += 1) {
+      days.push(null);
+    }
+
+    for (let day = 1; day <= lastDay.getDate(); day += 1) {
+      days.push(new Date(year, month, day));
+    }
+
+    return days;
+  };
+
   // Função para gerar slots de tempo entre dois horários
   const generateTimeSlots = (startTime: string, endTime: string): string[] => {
     const slots: string[] = [];
@@ -145,23 +219,23 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   };
 
   // Função para normalizar formato de horário (remove segundos)
-  const normalizeTime = (time: string): string => {
+  const normalizeTime = useCallback((time: string): string => {
     return time.substring(0, 5); // Remove os segundos (ex: "10:30:00" -> "10:30")
-  };
+  }, []);
 
   // Função para verificar se um horário está ocupado (confirmado ou concluído)
-  const isTimeSlotOccupied = (date: string, time: string): boolean => {
+  const isTimeSlotOccupied = useCallback((date: string, time: string): boolean => {
     return existingAppointments.some(apt => {
       const dateMatch = apt.date === date;
       const timeMatch = normalizeTime(apt.time) === time; // Normalizar horário do banco
-      const statusMatch = apt.status === 'confirmed' || apt.status === 'completed';
+      const statusMatch = apt.status === 'pending' || apt.status === 'confirmed' || apt.status === 'completed';
       
       return dateMatch && timeMatch && statusMatch;
     });
-  };
+  }, [existingAppointments, normalizeTime]);
 
   // Função para calcular horários disponíveis baseado na data selecionada
-  const calculateAvailableTimeSlots = (selectedDate: string) => {
+  const calculateAvailableTimeSlots = useCallback((selectedDate: string) => {
     if (!selectedDate) {
       setAvailableTimeSlots([]);
       return;
@@ -183,19 +257,88 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     }));
     
     setAvailableTimeSlots(formattedSlots);
-  };
+  }, [clinicAvailability, isTimeSlotOccupied]);
+
+  useEffect(() => {
+    if (formData.date) {
+      calculateAvailableTimeSlots(formData.date);
+    }
+  }, [formData.date, calculateAvailableTimeSlots]);
 
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Agendar - ${clinicTitle}`}>
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Input
-          label="Data do Agendamento"
-          type="date"
-          value={formData.date}
-          onChange={(value) => handleInputChange('date', value)}
-          required
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-3">
+            Data do Agendamento <span className="text-red-500">*</span>
+          </label>
+          <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={goToPreviousMonth}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                aria-label="Mês anterior"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="font-semibold text-gray-900">
+                {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+              </div>
+              <button
+                type="button"
+                onClick={goToNextMonth}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50"
+                aria-label="Próximo mês"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 text-center text-xs text-gray-500">
+              {weekDays.map((day) => (
+                <div key={day} className="font-medium">
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2">
+              {getCalendarDays().map((date, index) => {
+                if (!date) {
+                  return <div key={`blank-${index}`} className="h-10" />;
+                }
+
+                const isoDate = formatDateToIso(date);
+                const selected = formData.date === isoDate;
+                const selectable = isDateSelectable(date);
+
+                return (
+                  <button
+                    key={isoDate}
+                    type="button"
+                    onClick={() => selectDate(date)}
+                    disabled={!selectable}
+                    className={`h-10 rounded-lg text-sm font-medium transition-colors ${
+                      selected
+                        ? 'bg-[#2b9af3] text-white'
+                        : selectable
+                          ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    {date.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
         {/* Seleção de horários */}
         {formData.date && availableTimeSlots.length > 0 && (
@@ -206,17 +349,20 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-4">
               {availableTimeSlots.map((slot) => (
                 <div key={slot.value} className="relative">
-                  <Checkbox
-                    label={slot.label}
-                    checked={formData.selectedTimes.includes(slot.value)}
-                    onChange={(checked) => handleTimeSelection(slot.value, checked)}
-                    value={slot.value}
-                    disabled={slot.disabled}
-                  />
-                  {slot.disabled && (
-                    <div className="absolute inset-0 bg-gray-100 bg-opacity-75 rounded flex items-center justify-center">
-                      <span className="text-xs text-gray-500 font-medium">Ocupado</span>
+                  {slot.disabled ? (
+                    <div className="h-full border border-gray-200 rounded-lg bg-gray-100 text-gray-500 p-3 flex items-center">
+                      <span className="text-sm font-medium leading-none whitespace-nowrap">
+                        {slot.label} - Ocupado
+                      </span>
                     </div>
+                  ) : (
+                    <Checkbox
+                      label={slot.label}
+                      checked={formData.selectedTimes.includes(slot.value)}
+                      onChange={(checked) => handleTimeSelection(slot.value, checked)}
+                      value={slot.value}
+                      disabled={slot.disabled}
+                    />
                   )}
                 </div>
               ))}

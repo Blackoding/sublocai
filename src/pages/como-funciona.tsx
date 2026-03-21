@@ -16,6 +16,54 @@ const ComoFuncionaPage = () => {
           </p>
         </div>
 
+        <div className="bg-white rounded-3xl shadow-lg p-12 mb-16">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Em 3 passos</h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Conectamos profissionais da saúde com consultórios disponíveis de forma rápida e segura
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl font-bold text-blue-600">1</span>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Busque</h3>
+              <p className="text-gray-600">
+                Encontre consultórios disponíveis na sua região com os filtros que você precisa
+              </p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl font-bold text-green-600">2</span>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Entre em contato</h3>
+              <p className="text-gray-600">
+                Converse diretamente com o proprietário via WhatsApp para negociar horários e valores
+              </p>
+            </div>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl font-bold text-purple-600">3</span>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Subloque</h3>
+              <p className="text-gray-600">
+                Feche o acordo e comece a atender seus pacientes em um ambiente profissional
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="text-center mb-12">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">Para todos os perfis</h2>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Nossa plataforma atende tanto proprietários quanto profissionais da saúde
+          </p>
+        </div>
+
         {/* Seção principal */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 mb-20">
           {/* Para Proprietários */}
@@ -205,6 +253,216 @@ const ComoFuncionaPage = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-lg p-12 mb-16">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Planos e preços</h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Escolha o plano ideal para começar sua sublocação
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="bg-gray-50 rounded-3xl p-8 shadow-md">
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-semibold text-gray-900 mb-2">Empresário</h3>
+                <p className="text-gray-600">Planos para proprietários de consultórios</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-6">
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                  <div className="text-center mb-5">
+                    <h4 className="text-xl font-semibold text-gray-900 mb-2">Gratuito</h4>
+                    <div className="flex items-baseline justify-center gap-2">
+                      <span className="text-4xl font-bold text-gray-900">R$0</span>
+                      <span className="text-gray-600">/mês</span>
+                    </div>
+                    <p className="text-gray-600 mt-3">Comece a anunciar sem custo e valide sua operação</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Até 1 sala</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Até 10 agendamentos/mês</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Suporte por email</p>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <Button onClick={() => router.push('/cadastrar')} variant="primary" size="lg" className="w-full">
+                      Começar grátis
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                  <div className="text-center mb-5">
+                    <h4 className="text-xl font-semibold text-gray-900 mb-2">Básico</h4>
+                    <div className="flex items-baseline justify-center gap-2">
+                      <span className="text-4xl font-bold text-gray-900">R$39</span>
+                      <span className="text-gray-600">/mês</span>
+                    </div>
+                    <p className="text-gray-600 mt-3">Mais salas, mais agendamentos e controle no dashboard</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Até 6 salas</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Agendamentos ilimitados</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Dashboard</p>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <Button onClick={() => router.push('/cadastrar')} variant="primary" size="lg" className="w-full">
+                      Assinar Básico
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl p-6 shadow-sm border-2 border-[#2b9af3]">
+                  <div className="text-center mb-5">
+                    <h4 className="text-xl font-semibold text-gray-900 mb-2">Avançado</h4>
+                    <div className="flex items-baseline justify-center gap-2">
+                      <span className="text-4xl font-bold text-gray-900">R$79</span>
+                      <span className="text-gray-600">/mês</span>
+                    </div>
+                    <p className="text-gray-600 mt-3">Seu atendimento com suporte e pagamento online</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Tudo do plano Básico</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Até 20 salas</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Suporte por WhatsApp</p>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <p className="text-gray-700">Pagamento online</p>
+                    </div>
+                  </div>
+                  <div className="mt-6">
+                    <Button onClick={() => router.push('/cadastrar')} variant="primary" size="lg" className="w-full">
+                      Assinar Avançado
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-3xl p-8 shadow-md">
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-semibold text-gray-900 mb-2">Profissional</h3>
+                <p className="text-gray-600">Plano para quem busca sublocar consultórios</p>
+              </div>
+
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <div className="text-center mb-5">
+                  <h4 className="text-xl font-semibold text-gray-900 mb-2">Gratuito</h4>
+                  <div className="flex items-baseline justify-center gap-2">
+                    <span className="text-4xl font-bold text-gray-900">R$0</span>
+                    <span className="text-gray-600">/mês</span>
+                  </div>
+                  <p className="text-gray-600 mt-3">Busque consultórios e entre em contato sem custo mensal</p>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <p className="text-gray-700">Busca de consultórios por localização</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <p className="text-gray-700">Visualização de detalhes do consultório</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <p className="text-gray-700">Agende o melhor consultório online</p>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <Button onClick={() => router.push('/sublocar')} variant="primary" size="lg" className="w-full">
+                    Buscar consultórios
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-lg p-12 mb-16">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Números que impressionam</h2>
+            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+              Nossa plataforma cresce a cada dia, conectando mais profissionais e consultórios
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="text-center">
+              <div className="text-4xl font-bold text-[#2b9af3] mb-2">+100</div>
+              <div className="text-lg text-gray-600">Consultórios cadastrados</div>
+            </div>
+
+            <div className="text-center">
+              <div className="text-4xl font-bold text-[#2b9af3] mb-2">+2.300</div>
+              <div className="text-lg text-gray-600">Sublocações realizadas</div>
+            </div>
+
+            <div className="text-center">
+              <div className="text-4xl font-bold text-[#2b9af3] mb-2">+5</div>
+              <div className="text-lg text-gray-600">Regiões cobertas</div>
+            </div>
+
+            <div className="text-center">
+              <div className="text-4xl font-bold text-[#2b9af3] mb-2">98%</div>
+              <div className="text-lg text-gray-600">Satisfação dos usuários</div>
+            </div>
           </div>
         </div>
 
