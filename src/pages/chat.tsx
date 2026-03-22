@@ -67,6 +67,12 @@ const ChatPage = () => {
     return `${sliced}...`;
   }, []);
 
+  const selectedAppointmentId = useMemo(() => {
+    const queryAppointmentId = typeof router.query.appointmentId === 'string' ? router.query.appointmentId : '';
+    if (queryAppointmentId) return queryAppointmentId;
+    return threads[0]?.appointmentId || '';
+  }, [router.query.appointmentId, threads]);
+
   const showBrowserNotification = useCallback(
     (params: { message: ChatMessage; senderName: string; appointmentId: string }) => {
       if (typeof window === 'undefined') return;
@@ -123,12 +129,6 @@ const ChatPage = () => {
       router.push('/entrar');
     }
   }, [authLoading, isAuthenticated, router]);
-
-  const selectedAppointmentId = useMemo(() => {
-    const queryAppointmentId = typeof router.query.appointmentId === 'string' ? router.query.appointmentId : '';
-    if (queryAppointmentId) return queryAppointmentId;
-    return threads[0]?.appointmentId || '';
-  }, [router.query.appointmentId, threads]);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.appointmentId === selectedAppointmentId) || null,
@@ -312,17 +312,18 @@ const ChatPage = () => {
       setIsSending(false);
       return;
     }
+    const sentMessage = result.data;
     setMessages((prev) => {
-      if (prev.some((item) => item.id === result.data?.id)) return prev;
+      if (prev.some((item) => item.id === sentMessage.id)) return prev;
       return [
         ...prev,
         {
-          ...result.data,
+          ...sentMessage,
           senderName: getUserDisplayName(user)
         }
       ];
     });
-    updateThreadPreview(result.data.appointmentId, result.data.content, result.data.createdAt, result.data.senderId);
+    updateThreadPreview(sentMessage.appointmentId, sentMessage.content, sentMessage.createdAt, sentMessage.senderId);
     setMessageInput('');
     setIsSending(false);
   };

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createServiceRoleSupabaseClient } from '@/config/supabase';
 import type { Appointment } from '@/types';
+import { distributeAppointmentTotalAcrossSlots } from '@/constants/clinicPricing';
 
 type ApiResponse = {
   data?: Appointment[];
@@ -14,6 +15,7 @@ type Body = {
   selectedTimes?: string[];
   notes?: string;
   valuePerSession?: number;
+  totalBookingValue?: number;
 };
 
 const isNonEmptyString = (value: unknown): value is string =>
@@ -48,14 +50,34 @@ export default async function handler(
     const date = body.date;
     const selectedTimes = normalizeTimes(body.selectedTimes);
     const valuePerSession = body.valuePerSession;
+    const totalBookingValue = body.totalBookingValue;
+
+    const hasHourlyPricing =
+      typeof valuePerSession === 'number' && valuePerSession > 0;
+    const hasPackagePricing =
+      typeof totalBookingValue === 'number' && totalBookingValue > 0;
 
     if (
       !isNonEmptyString(clinicId) ||
       !isNonEmptyString(userId) ||
       !isValidDate(date) ||
       selectedTimes.length === 0 ||
-      typeof valuePerSession !== 'number' ||
-      valuePerSession <= 0
+      (!hasHourlyPricing && !hasPackagePricing)
+    ) {
+      res.status(400).json({ error: 'Dados de agendamento inválidos' });
+      return;
+    }
+
+    const perSlotValues = hasPackagePricing
+      ? distributeAppointmentTotalAcrossSlots(
+          totalBookingValue,
+          selectedTimes.length,
+        )
+      : null;
+
+    if (
+      hasPackagePricing &&
+      (!perSlotValues || perSlotValues.length !== selectedTimes.length)
     ) {
       res.status(400).json({ error: 'Dados de agendamento inválidos' });
       return;
@@ -81,13 +103,13 @@ export default async function handler(
       return;
     }
 
-    const records = selectedTimes.map((time) => ({
+    const records = selectedTimes.map((time, index) => ({
       clinic_id: clinicId,
       user_id: userId,
       date,
       time,
       notes: isNonEmptyString(body.notes) ? body.notes.trim() : null,
-      value: valuePerSession,
+      value: perSlotValues ? perSlotValues[index]! : valuePerSession!,
       status: 'pending' as const
     }));
 

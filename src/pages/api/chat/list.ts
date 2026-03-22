@@ -1,6 +1,6 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createServiceRoleSupabaseClient } from '@/config/supabase';
-import type { Appointment, ChatThread } from '@/types';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createServiceRoleSupabaseClient } from "@/config/supabase";
+import type { Appointment, ChatThread } from "@/types";
 
 type ApiResponse = {
   data?: ChatThread[];
@@ -15,7 +15,7 @@ type AppointmentRow = Appointment;
 
 type UserRow = {
   id: string;
-  user_type: 'professional' | 'company';
+  user_type: "professional" | "company";
   full_name?: string | null;
   company_name?: string | null;
   trade_name?: string | null;
@@ -36,14 +36,14 @@ type MessageRow = {
 };
 
 const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
+  typeof value === "string" && value.trim().length > 0;
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<ApiResponse>
+  res: NextApiResponse<ApiResponse>,
 ) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Método não permitido' });
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Método não permitido" });
     return;
   }
 
@@ -51,29 +51,34 @@ export default async function handler(
     const body = req.body as Body;
     const userId = body.userId;
     if (!isNonEmptyString(userId)) {
-      res.status(400).json({ error: 'Usuário inválido' });
+      res.status(400).json({ error: "Usuário inválido" });
       return;
     }
 
     const serviceClient = createServiceRoleSupabaseClient();
 
-    const { data: currentUserData, error: currentUserError } = await serviceClient
-      .from('users')
-      .select('id,user_type')
-      .eq('id', userId)
-      .single();
+    const { data: currentUserData, error: currentUserError } =
+      await serviceClient
+        .from("users")
+        .select("id,user_type")
+        .eq("id", userId)
+        .single();
 
     if (currentUserError || !currentUserData) {
-      res.status(400).json({ error: currentUserError?.message || 'Usuário não encontrado' });
+      res
+        .status(400)
+        .json({ error: currentUserError?.message || "Usuário não encontrado" });
       return;
     }
 
-    const currentUserType = (currentUserData as { user_type: 'professional' | 'company' }).user_type;
+    const currentUserType = (
+      currentUserData as { user_type: "professional" | "company" }
+    ).user_type;
 
     const { data: clinicsData, error: clinicsError } = await serviceClient
-      .from('clinics')
-      .select('id,user_id')
-      .eq('user_id', userId);
+      .from("clinics")
+      .select("id,user_id")
+      .eq("user_id", userId);
 
     if (clinicsError) {
       res.status(400).json({ error: clinicsError.message });
@@ -87,9 +92,9 @@ export default async function handler(
     let ownerAppointments: AppointmentRow[] = [];
     if (ownerClinicIds.length > 0) {
       const { data, error } = await serviceClient
-        .from('appointments')
-        .select('*')
-        .in('clinic_id', ownerClinicIds);
+        .from("appointments")
+        .select("*")
+        .in("clinic_id", ownerClinicIds);
       if (error) {
         res.status(400).json({ error: error.message });
         return;
@@ -97,10 +102,11 @@ export default async function handler(
       ownerAppointments = (data as AppointmentRow[]) || [];
     }
 
-    const { data: selfAppointmentsData, error: selfAppointmentsError } = await serviceClient
-      .from('appointments')
-      .select('*')
-      .eq('user_id', userId);
+    const { data: selfAppointmentsData, error: selfAppointmentsError } =
+      await serviceClient
+        .from("appointments")
+        .select("*")
+        .eq("user_id", userId);
 
     if (selfAppointmentsError) {
       res.status(400).json({ error: selfAppointmentsError.message });
@@ -119,18 +125,22 @@ export default async function handler(
       return;
     }
 
-    const clinicIds = Array.from(new Set(appointments.map((appointment) => appointment.clinic_id)));
+    const clinicIds = Array.from(
+      new Set(appointments.map((appointment) => appointment.clinic_id)),
+    );
     const { data: clinicsRows, error: clinicsRowsError } = await serviceClient
-      .from('clinics')
-      .select('id,title,user_id')
-      .in('id', clinicIds);
+      .from("clinics")
+      .select("id,title,user_id")
+      .in("id", clinicIds);
 
     if (clinicsRowsError) {
       res.status(400).json({ error: clinicsRowsError.message });
       return;
     }
 
-    const clinicsById = ((clinicsRows || []) as ClinicRow[]).reduce<Record<string, ClinicRow>>((acc, row) => {
+    const clinicsById = ((clinicsRows || []) as ClinicRow[]).reduce<
+      Record<string, ClinicRow>
+    >((acc, row) => {
       acc[row.id] = row;
       return acc;
     }, {});
@@ -138,31 +148,33 @@ export default async function handler(
     const userIdsForLookup = Array.from(
       new Set([
         ...appointments.map((appointment) => appointment.user_id),
-        ...((clinicsRows || []) as ClinicRow[]).map((clinic) => clinic.user_id)
-      ])
+        ...((clinicsRows || []) as ClinicRow[]).map((clinic) => clinic.user_id),
+      ]),
     );
 
     const { data: usersRows, error: usersRowsError } = await serviceClient
-      .from('users')
-      .select('id,user_type,full_name,company_name,trade_name')
-      .in('id', userIdsForLookup);
+      .from("users")
+      .select("id,user_type,full_name,company_name,trade_name")
+      .in("id", userIdsForLookup);
 
     if (usersRowsError) {
       res.status(400).json({ error: usersRowsError.message });
       return;
     }
 
-    const usersById = ((usersRows || []) as UserRow[]).reduce<Record<string, UserRow>>((acc, row) => {
+    const usersById = ((usersRows || []) as UserRow[]).reduce<
+      Record<string, UserRow>
+    >((acc, row) => {
       acc[row.id] = row;
       return acc;
     }, {});
 
     const appointmentIds = appointments.map((appointment) => appointment.id);
     const { data: messagesRows, error: messagesError } = await serviceClient
-      .from('appointment_messages')
-      .select('appointment_id,sender_id,receiver_id,content,created_at')
-      .in('appointment_id', appointmentIds)
-      .order('created_at', { ascending: false });
+      .from("appointment_messages")
+      .select("appointment_id,sender_id,receiver_id,content,created_at")
+      .in("appointment_id", appointmentIds)
+      .order("created_at", { ascending: false });
 
     if (messagesError) {
       res.status(400).json({ error: messagesError.message });
@@ -176,7 +188,9 @@ export default async function handler(
       }
     });
 
-    const unreadByAppointment = ((messagesRows || []) as MessageRow[]).reduce<Record<string, number>>((acc, message) => {
+    const unreadByAppointment = ((messagesRows || []) as MessageRow[]).reduce<
+      Record<string, number>
+    >((acc, message) => {
       if (message.receiver_id === userId) {
         const currentCount = acc[message.appointment_id] || 0;
         acc[message.appointment_id] = currentCount + 1;
@@ -186,20 +200,26 @@ export default async function handler(
 
     const data: ChatThread[] = appointments.map((appointment) => {
       const clinic = clinicsById[appointment.clinic_id];
-      const clinicOwnerId = clinic?.user_id || '';
+      const clinicOwnerId = clinic?.user_id || "";
       const bookerId = appointment.user_id;
-      const counterpartId = currentUserType === 'company' ? bookerId : clinicOwnerId;
+      const counterpartId =
+        currentUserType === "company" ? bookerId : clinicOwnerId;
       const counterpartUser = usersById[counterpartId];
-      const counterpartName = currentUserType === 'company'
-        ? counterpartUser?.full_name || 'Profissional'
-        : counterpartUser?.trade_name || counterpartUser?.company_name || 'Empresa';
-      const counterpartTypeLabel = (currentUserType === 'company' ? 'Profissional' : 'Empresa') as ChatThread['counterpartTypeLabel'];
+      const counterpartName =
+        currentUserType === "company"
+          ? counterpartUser?.full_name || "Profissional"
+          : counterpartUser?.trade_name ||
+            counterpartUser?.company_name ||
+            "Empresa";
+      const counterpartTypeLabel = (
+        currentUserType === "company" ? "Profissional" : "Empresa"
+      ) as ChatThread["counterpartTypeLabel"];
       const latestMessage = latestMessageByAppointment.get(appointment.id);
 
       return {
         appointmentId: appointment.id,
         clinicId: appointment.clinic_id,
-        clinicTitle: clinic?.title || appointment.clinic_title || 'Consultório',
+        clinicTitle: clinic?.title || appointment.clinic_title || "Espaço",
         counterpartId,
         counterpartName,
         counterpartTypeLabel,
@@ -210,23 +230,30 @@ export default async function handler(
           ? {
               content: latestMessage.content,
               createdAt: latestMessage.created_at,
-              senderId: latestMessage.sender_id
+              senderId: latestMessage.sender_id,
             }
           : undefined,
-        unreadCount: unreadByAppointment[appointment.id] || 0
+        unreadCount: unreadByAppointment[appointment.id] || 0,
       };
     });
 
     data.sort((a, b) => {
-      const aKey = a.latestMessage?.createdAt || `${a.appointmentDate}T${a.appointmentTime}`;
-      const bKey = b.latestMessage?.createdAt || `${b.appointmentDate}T${b.appointmentTime}`;
+      const aKey =
+        a.latestMessage?.createdAt ||
+        `${a.appointmentDate}T${a.appointmentTime}`;
+      const bKey =
+        b.latestMessage?.createdAt ||
+        `${b.appointmentDate}T${b.appointmentTime}`;
       return bKey.localeCompare(aKey);
     });
 
     res.status(200).json({ data });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : 'Erro inesperado ao buscar chats'
+      error:
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao buscar chats",
     });
   }
 }

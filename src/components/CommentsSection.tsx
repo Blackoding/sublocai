@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
-import { useCommentService } from '@/services/commentService';
-import { useAuthStore } from '@/stores/authStore';
-import { Comment, CommentFormData } from '@/types';
-import Button from './Button';
-import AuthWarning from './AuthWarning';
+import React, { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
+import { useCommentService } from "@/services/commentService";
+import { useAuthStore } from "@/stores/authStore";
+import { Comment, CommentFormData } from "@/types";
+import Button from "./Button";
+import AuthWarning from "./AuthWarning";
 
 interface CommentsSectionProps {
   clinicId: string;
@@ -12,32 +12,35 @@ interface CommentsSectionProps {
   onRatingComputed?: (rating: number) => void;
 }
 
-const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingComputed }) => {
+const CommentsSection: React.FC<CommentsSectionProps> = ({
+  clinicId,
+  onRatingComputed,
+}) => {
   const { isAuthenticated, user } = useAuthStore();
-  const { 
-    isLoading: serviceLoading, 
-    error: serviceError, 
-    getCommentsByClinic, 
-    addComment, 
-    deleteComment, 
+  const {
+    isLoading: serviceLoading,
+    error: serviceError,
+    getCommentsByClinic,
+    addComment,
+    deleteComment,
     hasUserCommented,
-    clearError 
+    clearError,
   } = useCommentService();
-  
+
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  
+
   // Estados do formulário
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<CommentFormData>({
-    content: '',
-    rating: undefined
+    content: "",
+    rating: undefined,
   });
   const [hoveredRating, setHoveredRating] = useState<number | null>(null);
-  
+
   // Verificar se o usuário já comentou
   const [userComment, setUserComment] = useState<Comment | null>(null);
 
@@ -45,35 +48,30 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
     setIsLoading(true);
     setError(null);
     clearError();
-    
+
     try {
       const result = await getCommentsByClinic(clinicId);
-      
+
       if (result.success && result.comments) {
         const nextComments = result.comments;
         setComments(nextComments);
 
         const ratedComments = nextComments.filter(
-          (c) =>
-            typeof c.rating === 'number' &&
-            c.rating >= 1 &&
-            c.rating <= 5
+          (c) => typeof c.rating === "number" && c.rating >= 1 && c.rating <= 5,
         );
 
         const computedRating =
           ratedComments.length > 0
-            ? ratedComments.reduce(
-                (sum, c) => sum + (c.rating as number),
-                0
-              ) / ratedComments.length
+            ? ratedComments.reduce((sum, c) => sum + (c.rating as number), 0) /
+              ratedComments.length
             : 5;
 
         onRatingComputed?.(computedRating);
       } else {
-        setError(result.error || 'Erro ao carregar comentários');
+        setError(result.error || "Erro ao carregar comentários");
       }
     } catch {
-      setError('Erro inesperado ao carregar comentários');
+      setError("Erro inesperado ao carregar comentários");
       // console.error('Error loading comments:', error);
     } finally {
       setIsLoading(false);
@@ -82,7 +80,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
 
   const checkUserComment = useCallback(async () => {
     if (!user) return;
-    
+
     try {
       const result = await hasUserCommented(clinicId, user.id);
       setUserComment(result.comment || null);
@@ -104,90 +102,90 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
   }, [isAuthenticated, user, clinicId, checkUserComment]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      content: e.target.value
+      content: e.target.value,
     }));
     setError(null);
   };
 
   const handleRatingChange = (rating: number) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      rating
+      rating,
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user || !formData.content.trim()) return;
-    
+
     // Validar comprimento mínimo do comentário
     if (formData.content.trim().length < 10) {
-      setError('O comentário deve ter pelo menos 10 caracteres');
+      setError("O comentário deve ter pelo menos 10 caracteres");
       return;
     }
-    
+
     // Validar se a avaliação foi selecionada
     if (!formData.rating) {
-      setError('A avaliação com estrelas é obrigatória');
+      setError("A avaliação com estrelas é obrigatória");
       return;
     }
-    
+
     setIsSubmitting(true);
     setError(null);
     setSuccess(null);
     clearError();
-    
+
     try {
       // Adicionar novo comentário
       const result = await addComment(clinicId, user.id, formData);
-      
+
       if (result.success) {
-        setSuccess('Comentário adicionado com sucesso!');
-        setFormData({ content: '', rating: undefined });
+        setSuccess("Comentário adicionado com sucesso!");
+        setFormData({ content: "", rating: undefined });
         setHoveredRating(null);
         setShowForm(false);
         await loadComments();
         await checkUserComment();
       } else {
-        setError(result.error || 'Erro ao salvar comentário');
+        setError(result.error || "Erro ao salvar comentário");
       }
     } catch {
-      setError('Erro inesperado ao salvar comentário');
+      setError("Erro inesperado ao salvar comentário");
       // console.error('Error submitting comment:', error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-
   const handleDelete = async (commentId: string) => {
-    if (!user || !confirm('Tem certeza que deseja excluir este comentário?')) return;
-    
+    if (!user || !confirm("Tem certeza que deseja excluir este comentário?"))
+      return;
+
     try {
       setError(null);
       setSuccess(null);
       clearError();
-      
+
       const result = await deleteComment(commentId, user.id);
-      
+
       if (result.success) {
-        setSuccess('Comentário excluído com sucesso!');
+        setSuccess("Comentário excluído com sucesso!");
         await loadComments();
         await checkUserComment();
       } else {
-        setError(result.error || 'Erro ao excluir comentário');
+        setError(result.error || "Erro ao excluir comentário");
       }
     } catch {
-      setError('Erro inesperado ao excluir comentário');
+      setError("Erro inesperado ao excluir comentário");
       // console.error('Error deleting comment:', error);
     }
   };
 
   const handleCancel = () => {
-    setFormData({ content: '', rating: undefined });
+    setFormData({ content: "", rating: undefined });
     setHoveredRating(null);
     setShowForm(false);
     setError(null);
@@ -196,12 +194,12 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    return date.toLocaleDateString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -210,7 +208,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
       <span
         key={index}
         className={`text-lg ${
-          index < rating ? 'text-yellow-400' : 'text-gray-300'
+          index < rating ? "text-yellow-400" : "text-gray-300"
         }`}
       >
         ★
@@ -221,11 +219,17 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
   const renderRatingInput = () => {
     return (
       <div className="flex items-center space-x-1 mb-4">
-        <span className="text-sm text-gray-600 mr-2">Avaliação: <span className="text-red-500">*</span></span>
+        <span className="text-sm text-gray-600 mr-2">
+          Avaliação: <span className="text-red-500">*</span>
+        </span>
         {Array.from({ length: 5 }, (_, index) => {
           const starNumber = index + 1;
-          const isActive = hoveredRating ? starNumber <= hoveredRating : (formData.rating ? starNumber <= formData.rating : false);
-          
+          const isActive = hoveredRating
+            ? starNumber <= hoveredRating
+            : formData.rating
+              ? starNumber <= formData.rating
+              : false;
+
           return (
             <button
               key={index}
@@ -234,9 +238,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
               onMouseEnter={() => setHoveredRating(starNumber)}
               onMouseLeave={() => setHoveredRating(null)}
               className={`text-2xl transition-colors cursor-pointer ${
-                isActive
-                  ? 'text-yellow-400'
-                  : 'text-gray-300'
+                isActive ? "text-yellow-400" : "text-gray-300"
               }`}
             >
               ★
@@ -245,7 +247,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
         })}
         {(formData.rating || hoveredRating) && (
           <span className="text-sm text-gray-600 ml-2">
-            ({(hoveredRating || formData.rating)}/5)
+            ({hoveredRating || formData.rating}/5)
           </span>
         )}
         {!formData.rating && (
@@ -263,15 +265,21 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
         <h2 className="text-2xl font-bold text-gray-900">
           Comentários ({comments.length})
         </h2>
-        
+
         {isAuthenticated && !userComment && !showForm && (
-          <Button
-            onClick={() => setShowForm(true)}
-            variant="primary"
-            size="md"
-          >
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          <Button onClick={() => setShowForm(true)} variant="primary" size="md">
+            <svg
+              className="w-4 h-4 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
             </svg>
             Comentar
           </Button>
@@ -282,8 +290,18 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
       {(error || serviceError) && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex">
-            <svg className="w-5 h-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-5 h-5 text-red-400 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <p className="text-sm text-red-700">{error || serviceError}</p>
           </div>
@@ -293,8 +311,18 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
       {success && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
           <div className="flex">
-            <svg className="w-5 h-5 text-green-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <svg
+              className="w-5 h-5 text-green-400 mr-2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             <p className="text-sm text-green-700">{success}</p>
           </div>
@@ -307,10 +335,10 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
             Adicionar Comentário
           </h3>
-          
+
           <form onSubmit={handleSubmit}>
             {renderRatingInput()}
-            
+
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Comentário *
@@ -318,7 +346,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
               <textarea
                 value={formData.content}
                 onChange={handleInputChange}
-                placeholder="Compartilhe sua experiência com este consultório (mínimo 10 caracteres)..."
+                placeholder="Compartilhe sua experiência com este espaço (mínimo 10 caracteres)..."
                 className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm hover:border-gray-300 transition-colors duration-200 cursor-pointer text-[#333] placeholder-gray-500 resize-none"
                 rows={4}
                 required
@@ -329,17 +357,19 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
                 {formData.content.length}/500 caracteres (mínimo 10)
               </p>
             </div>
-            
+
             <div className="flex space-x-3">
               <Button
                 type="submit"
                 variant="primary"
                 size="md"
-                disabled={!formData.content.trim() || !formData.rating || isSubmitting}
+                disabled={
+                  !formData.content.trim() || !formData.rating || isSubmitting
+                }
               >
-                {isSubmitting ? 'Publicando...' : 'Publicar'}
+                {isSubmitting ? "Publicando..." : "Publicar"}
               </Button>
-              
+
               <Button
                 type="button"
                 onClick={handleCancel}
@@ -355,33 +385,46 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
       )}
 
       {/* Lista de comentários */}
-      {(isLoading || serviceLoading) ? (
+      {isLoading || serviceLoading ? (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#2b9af3] mx-auto mb-4"></div>
           <p className="text-gray-600">Carregando comentários...</p>
         </div>
       ) : comments.length === 0 ? (
         <div className="text-center py-8">
-          <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          <svg
+            className="w-16 h-16 text-gray-400 mx-auto mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
           <h3 className="text-lg font-medium text-gray-900 mb-2">
             Nenhum comentário ainda
           </h3>
           <p className="text-gray-600 mb-4">
-            Seja o primeiro a compartilhar sua experiência com este consultório!
+            Seja o primeiro a compartilhar sua experiência com este espaço!
           </p>
           {!isAuthenticated && (
-            <AuthWarning 
+            <AuthWarning
               title="Login necessário"
-              message="Faça login para comentar" 
+              message="Faça login para comentar"
             />
           )}
         </div>
       ) : (
         <div className="space-y-6">
           {comments.map((comment) => (
-            <div key={comment.id} className="border-b border-gray-200 pb-6 last:border-b-0">
+            <div
+              key={comment.id}
+              className="border-b border-gray-200 pb-6 last:border-b-0"
+            >
               <div className="flex items-start space-x-4">
                 {/* Avatar do usuário */}
                 <div className="flex-shrink-0">
@@ -396,15 +439,15 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
                       />
                     ) : (
                       comment.user_name
-                        ?.split(' ')
-                        .map(name => name.charAt(0))
-                        .join('')
+                        ?.split(" ")
+                        .map((name) => name.charAt(0))
+                        .join("")
                         .toUpperCase()
-                        .slice(0, 2) || 'U'
+                        .slice(0, 2) || "U"
                     )}
                   </div>
                 </div>
-                
+
                 {/* Conteúdo do comentário */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-2">
@@ -419,7 +462,7 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
                         )}
                       </p>
                     </div>
-                    
+
                     {/* Ações do comentário */}
                     {isAuthenticated && user && user.id === comment.user_id && (
                       <div className="flex space-x-2">
@@ -432,14 +475,14 @@ const CommentsSection: React.FC<CommentsSectionProps> = ({ clinicId, onRatingCom
                       </div>
                     )}
                   </div>
-                  
+
                   {/* Avaliação */}
                   {comment.rating && (
                     <div className="flex items-center mb-2">
                       {renderStars(comment.rating)}
                     </div>
                   )}
-                  
+
                   {/* Texto do comentário */}
                   <p className="text-gray-700 leading-relaxed">
                     {comment.content}

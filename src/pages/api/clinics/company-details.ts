@@ -1,5 +1,5 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createServiceRoleSupabaseClient } from '@/config/supabase';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createServiceRoleSupabaseClient } from "@/config/supabase";
 
 type ApiResponse = {
   data?: {
@@ -30,29 +30,29 @@ type OwnerRow = {
 };
 
 const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === 'string' && value.trim().length > 0;
+  typeof value === "string" && value.trim().length > 0;
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<ApiResponse>
+  res: NextApiResponse<ApiResponse>,
 ) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Método não permitido' });
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Método não permitido" });
     return;
   }
 
   try {
     const body = req.body as Body;
     if (!isNonEmptyString(body.clinicId)) {
-      res.status(400).json({ error: 'Consultório inválido' });
+      res.status(400).json({ error: "Espaço inválido" });
       return;
     }
 
     const serviceClient = createServiceRoleSupabaseClient();
     const { data: clinicRows, error: clinicError } = await serviceClient
-      .from('clinics')
-      .select('user_id,street,number,neighborhood,city,state')
-      .eq('id', body.clinicId)
+      .from("clinics")
+      .select("user_id,street,number,neighborhood,city,state")
+      .eq("id", body.clinicId)
       .limit(1);
 
     if (clinicError) {
@@ -64,18 +64,18 @@ export default async function handler(
     if (!clinicRow?.user_id) {
       res.status(200).json({
         data: {
-          companyName: '',
-          cnpj: '',
-          address: ''
-        }
+          companyName: "",
+          cnpj: "",
+          address: "",
+        },
       });
       return;
     }
 
     const { data: ownerRows, error: ownerError } = await serviceClient
-      .from('users')
-      .select('trade_name,company_name,cnpj')
-      .eq('id', clinicRow.user_id)
+      .from("users")
+      .select("trade_name,company_name,cnpj")
+      .eq("id", clinicRow.user_id)
       .limit(1);
 
     if (ownerError) {
@@ -85,24 +85,26 @@ export default async function handler(
 
     const ownerRow = ((ownerRows || []) as OwnerRow[])[0];
     const address = [
-      [clinicRow.street, clinicRow.number].filter(Boolean).join(', '),
-      clinicRow.neighborhood || '',
-      [clinicRow.city, clinicRow.state].filter(Boolean).join(' - ')
+      [clinicRow.street, clinicRow.number].filter(Boolean).join(", "),
+      clinicRow.neighborhood || "",
+      [clinicRow.city, clinicRow.state].filter(Boolean).join(" - "),
     ]
       .filter(Boolean)
-      .join(' • ');
+      .join(" • ");
 
     res.status(200).json({
       data: {
-        companyName: ownerRow?.trade_name || ownerRow?.company_name || '',
-        cnpj: ownerRow?.cnpj || '',
-        address
-      }
+        companyName: ownerRow?.trade_name || ownerRow?.company_name || "",
+        cnpj: ownerRow?.cnpj || "",
+        address,
+      },
     });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : 'Erro inesperado ao buscar dados da empresa'
+      error:
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao buscar dados da empresa",
     });
   }
 }
-

@@ -232,7 +232,7 @@ const Header: React.FC = () => {
           <div className="flex items-center space-x-4 w-60">
             <Link href="/" className="cursor-pointer">
               {/* Logo placeholder - pode ser substituído por uma imagem */}
-              <span className="text-xl font-bold text-[#2b9af3]">Logo</span>
+              <span className="text-xl font-bold text-[#2b9af3]">Locato</span>
             </Link>
           </div>
 

@@ -1,5 +1,7 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createServiceRoleSupabaseClient } from '@/config/supabase';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createServiceRoleSupabaseClient } from "@/config/supabase";
+import { normalizeAccessibilityFeatures } from "@/constants/accessibility";
+import { parseOptionalPriceField } from "@/constants/clinicPricing";
 type ApiResponse = {
   clinic?: unknown;
   error?: string;
@@ -8,7 +10,7 @@ type ApiResponse = {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: '120mb',
+      sizeLimit: "120mb",
     },
   },
 };
@@ -18,11 +20,12 @@ type Body = {
   updates?: Record<string, unknown>;
 };
 
-const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0;
 const parseNumber = (value: unknown): number => {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const normalized = value.replace(',', '.');
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const normalized = value.replace(",", ".");
     const parsed = parseFloat(normalized);
     return Number.isFinite(parsed) ? parsed : 0;
   }
@@ -31,16 +34,29 @@ const parseNumber = (value: unknown): number => {
 
 const normalizeStringArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string');
+  return value.filter((item): item is string => typeof item === "string");
 };
 
-const isAllowedStatus = (value: unknown): value is 'pending' | 'active' | 'inactive' => {
-  return value === 'pending' || value === 'active' || value === 'inactive';
+const normalizeIncludedEquipment = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 };
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResponse>) {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Método não permitido' });
+const isAllowedStatus = (
+  value: unknown,
+): value is "pending" | "active" | "inactive" => {
+  return value === "pending" || value === "active" || value === "inactive";
+};
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<ApiResponse>,
+) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Método não permitido" });
     return;
   }
 
@@ -49,8 +65,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const clinicId = body.clinicId;
     const updates = body.updates ?? {};
 
-    if (!isNonEmptyString(clinicId) || updates === null || typeof updates !== 'object') {
-      res.status(400).json({ error: 'Dados inválidos' });
+    if (
+      !isNonEmptyString(clinicId) ||
+      updates === null ||
+      typeof updates !== "object"
+    ) {
+      res.status(400).json({ error: "Dados inválidos" });
       return;
     }
 
@@ -58,60 +78,111 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     const updateRecord: Record<string, unknown> = {};
 
-    if (typeof updates.title === 'string') updateRecord.title = updates.title;
-    if (typeof updates.description === 'string') updateRecord.description = updates.description;
+    if (typeof updates.title === "string") updateRecord.title = updates.title;
+    if (typeof updates.description === "string")
+      updateRecord.description = updates.description;
 
-    if (typeof updates.cep === 'string') updateRecord.cep = updates.cep;
-    if (typeof updates.street === 'string') updateRecord.street = updates.street;
-    if (typeof updates.number === 'string') updateRecord.number = updates.number;
-    if (typeof updates.neighborhood === 'string') updateRecord.neighborhood = updates.neighborhood;
-    if (typeof updates.complement === 'string') updateRecord.complement = updates.complement;
+    if (typeof updates.rules === "string") {
+      updateRecord.rules = updates.rules.trim() || null;
+    }
 
-    if (typeof updates.city === 'string') updateRecord.city = updates.city;
-    if (typeof updates.state === 'string') updateRecord.state = updates.state;
+    if (typeof updates.cep === "string") updateRecord.cep = updates.cep;
+    if (typeof updates.street === "string")
+      updateRecord.street = updates.street;
+    if (typeof updates.number === "string")
+      updateRecord.number = updates.number;
+    if (typeof updates.neighborhood === "string")
+      updateRecord.neighborhood = updates.neighborhood;
+    if (typeof updates.complement === "string")
+      updateRecord.complement = updates.complement;
 
-    if (typeof updates.zip_code === 'string') updateRecord.zip_code = updates.zip_code;
+    if (typeof updates.city === "string") updateRecord.city = updates.city;
+    if (typeof updates.state === "string") updateRecord.state = updates.state;
 
-    if (typeof updates.price === 'number' || typeof updates.price === 'string') {
+    if (typeof updates.zip_code === "string")
+      updateRecord.zip_code = updates.zip_code;
+
+    if (
+      typeof updates.price === "number" ||
+      typeof updates.price === "string"
+    ) {
       updateRecord.price = parseNumber(updates.price);
     }
 
-    if (typeof updates.specialty === 'string') updateRecord.specialty = updates.specialty;
+    if (updates.price_per_shift !== undefined) {
+      const parsed = parseOptionalPriceField(updates.price_per_shift);
+      if (parsed !== null) updateRecord.price_per_shift = parsed;
+    }
 
-    if (Array.isArray(updates.specialties)) updateRecord.specialties = normalizeStringArray(updates.specialties);
-    if (Array.isArray(updates.images)) updateRecord.images = normalizeStringArray(updates.images);
-    if (Array.isArray(updates.features)) updateRecord.features = normalizeStringArray(updates.features);
+    if (updates.price_per_day !== undefined) {
+      const parsed = parseOptionalPriceField(updates.price_per_day);
+      if (parsed !== null) updateRecord.price_per_day = parsed;
+    }
 
-    if (typeof updates.google_maps_url === 'string') updateRecord.google_maps_url = updates.google_maps_url;
+    if (updates.price_per_month !== undefined) {
+      const parsed = parseOptionalPriceField(updates.price_per_month);
+      if (parsed !== null) updateRecord.price_per_month = parsed;
+    }
 
-    if (Array.isArray(updates.availability)) updateRecord.availability = updates.availability;
+    if (typeof updates.specialty === "string")
+      updateRecord.specialty = updates.specialty;
 
-    if (typeof updates.hasappointment === 'boolean') updateRecord.hasappointment = updates.hasappointment;
+    if (Array.isArray(updates.specialties))
+      updateRecord.specialties = normalizeStringArray(updates.specialties);
+    if (Array.isArray(updates.images))
+      updateRecord.images = normalizeStringArray(updates.images);
+    if (Array.isArray(updates.features))
+      updateRecord.features = normalizeStringArray(updates.features);
+
+    if (Array.isArray(updates.included_equipment)) {
+      updateRecord.included_equipment = normalizeIncludedEquipment(
+        updates.included_equipment,
+      );
+    }
+
+    if (Array.isArray(updates.accessibility_features)) {
+      updateRecord.accessibility_features = normalizeAccessibilityFeatures(
+        updates.accessibility_features,
+      );
+    }
+
+    if (typeof updates.google_maps_url === "string")
+      updateRecord.google_maps_url = updates.google_maps_url;
+
+    if (Array.isArray(updates.availability))
+      updateRecord.availability = updates.availability;
+
+    if (typeof updates.hasappointment === "boolean")
+      updateRecord.hasappointment = updates.hasappointment;
 
     if (isAllowedStatus(updates.status)) updateRecord.status = updates.status;
 
     if (Object.keys(updateRecord).length === 0) {
-      res.status(400).json({ error: 'Nenhum campo válido para atualizar' });
+      res.status(400).json({ error: "Nenhum campo válido para atualizar" });
       return;
     }
 
     const { data, error } = await serviceClient
-      .from('clinics')
+      .from("clinics")
       .update(updateRecord)
-      .eq('id', clinicId)
+      .eq("id", clinicId)
       .select()
       .single();
 
     if (error || !data) {
-      res.status(400).json({ error: error?.message || 'Failed to update clinic' });
+      res
+        .status(400)
+        .json({ error: error?.message || "Failed to update clinic" });
       return;
     }
 
     res.status(200).json({ clinic: data });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : 'Erro inesperado ao atualizar clínica'
+      error:
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao atualizar clínica",
     });
   }
 }
-

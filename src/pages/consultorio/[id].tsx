@@ -1,25 +1,36 @@
-import { useRouter } from 'next/router';
-import { GetServerSideProps } from 'next';
-import { useState } from 'react';
-import Head from 'next/head';
-import Image from 'next/image';
-import Link from 'next/link';
-import { SublocationPlus, Clinic } from '@/types';
-import SublocationCard from '@/components/SublocationCard';
-import Button from '@/components/Button';
-import AppointmentModal from '@/components/AppointmentModal';
+import { useRouter } from "next/router";
+import { GetServerSideProps } from "next";
+import { useState } from "react";
+import Head from "next/head";
+import Image from "next/image";
+import Link from "next/link";
+import {
+  ACCESSIBILITY_SECTION_BAR_GRADIENT,
+  getAccessibilityInfo,
+  normalizeAccessibilityFeatures,
+} from "@/constants/accessibility";
+import { Clinic, ClinicAccessibility, SublocationPlus } from "@/types";
+import SublocationCard from "@/components/SublocationCard";
+import Button from "@/components/Button";
+import AppointmentModal from "@/components/AppointmentModal";
 // import AuthWarning from '@/components/AuthWarning';
 // import GoogleMap from '@/components/GoogleMap';
-import CommentsSection from '@/components/CommentsSection';
+import CommentsSection from "@/components/CommentsSection";
 // import { SPECIALTIES } from '@/constants/specialties';
-import { getFeatureInfo } from '@/constants/features';
-import { formatDetailedAddress, formatAvailability } from '@/constants/address';
-import { useSpecialties } from '@/hooks/useSpecialties';
-import { BackButton } from '@/components/BackButton';
-import { createAnonSupabaseClient } from '@/config/supabase';
-import { useAuthStore } from '@/stores/authStore';
-import { AppointmentService } from '@/services/appointmentService';
-import { useToastStore } from '@/stores/toastStore';
+import { getFeatureInfo } from "@/constants/features";
+import { formatDetailedAddress, formatAvailability } from "@/constants/address";
+import {
+  buildConsultorioHourlySlots,
+  formatPriceBrl,
+  getClinicWeekdayKeyFromIsoDate,
+  quoteAppointmentBooking,
+} from "@/constants/clinicPricing";
+import { useSpecialties } from "@/hooks/useSpecialties";
+import { BackButton } from "@/components/BackButton";
+import { createAnonSupabaseClient } from "@/config/supabase";
+import { useAuthStore } from "@/stores/authStore";
+import { AppointmentService } from "@/services/appointmentService";
+import { useToastStore } from "@/stores/toastStore";
 
 // Usar a interface Clinic centralizada dos tipos
 type Consultorio = Clinic;
@@ -29,16 +40,21 @@ interface ConsultorioPageProps {
   hasAvailability: boolean;
 }
 
-const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps) => {
+const ConsultorioPage = ({
+  consultorio,
+  hasAvailability,
+}: ConsultorioPageProps) => {
   const router = useRouter();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
-  const [existingAppointments, setExistingAppointments] = useState<{ date: string; time: string; status: string }[]>([]);
+  const [existingAppointments, setExistingAppointments] = useState<
+    { date: string; time: string; status: string }[]
+  >([]);
 
   const baseRating =
-    typeof consultorio.rating === 'number' ? consultorio.rating : 0;
+    typeof consultorio.rating === "number" ? consultorio.rating : 0;
   const [rating, setRating] = useState<number>(baseRating > 0 ? baseRating : 5);
-  
+
   // Hook para especialidades
   const { getSpecialtyLabel } = useSpecialties();
 
@@ -51,64 +67,104 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
 
   const shouldUseWhatsApp = () => false;
 
-  const generateWhatsAppLink = () => '#';
+  const generateWhatsAppLink = () => "#";
 
   // Função para abrir o modal de agendamento
   const handleOpenAppointmentModal = () => {
     if (!consultorio.id) return;
 
-    AppointmentService.getAppointmentsByClinic(consultorio.id).then((result) => {
-      if (result.data) {
-        setExistingAppointments(
-          result.data.map((appointment) => ({
-            date: appointment.date,
-            time: appointment.time,
-            status: appointment.status
-          }))
-        );
-      }
-    });
+    AppointmentService.getAppointmentsByClinic(consultorio.id).then(
+      (result) => {
+        if (result.data) {
+          setExistingAppointments(
+            result.data.map((appointment) => ({
+              date: appointment.date,
+              time: appointment.time,
+              status: appointment.status,
+            })),
+          );
+        }
+      },
+    );
 
     setIsAppointmentModalOpen(true);
   };
 
   // Função para lidar com o agendamento
-  const handleAppointmentSubmit = async (appointmentData: { date: string; selectedTimes: string[]; notes?: string }) => {
+  const handleAppointmentSubmit = async (appointmentData: {
+    date: string;
+    selectionsByDate: Record<string, string[]>;
+    notes?: string;
+  }) => {
     if (!isAuthenticated || !user?.id || !consultorio.id) {
-      showToast('Você precisa estar logado para agendar.', 'error');
+      showToast("Você precisa estar logado para agendar.", "error");
       return;
     }
 
-    const result = await AppointmentService.createAppointments({
-      clinicId: consultorio.id,
-      userId: user.id,
-      date: appointmentData.date,
-      selectedTimes: appointmentData.selectedTimes,
-      notes: appointmentData.notes,
-      valuePerSession: consultorio.price
-    });
-
-    if (result.error) {
-      showToast(result.error, 'error');
+    const entries = Object.entries(appointmentData.selectionsByDate).filter(
+      ([, t]) => t.length > 0,
+    );
+    if (entries.length === 0) {
+      showToast("Selecione ao menos um horário.", "error");
       return;
     }
 
-    showToast('Agendamento criado com sucesso!', 'success');
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    const anchorDay = getClinicWeekdayKeyFromIsoDate(entries[0]![0]);
+    for (const [iso] of entries) {
+      if (getClinicWeekdayKeyFromIsoDate(iso) !== anchorDay) {
+        showToast("Todas as datas devem ser o mesmo dia da semana.", "error");
+        return;
+      }
+    }
+
+    for (const [dateStr, times] of entries) {
+      const slots = buildConsultorioHourlySlots(
+        dateStr,
+        consultorio.availability ?? [],
+        existingAppointments,
+      );
+      const quote = quoteAppointmentBooking(times, slots, {
+        priceHour: consultorio.price,
+        pricePerShift: consultorio.price_per_shift,
+        pricePerDay: consultorio.price_per_day,
+      });
+      if (!quote || quote.total <= 0) {
+        showToast("Não foi possível calcular o valor do agendamento.", "error");
+        return;
+      }
+      const useTotalDistribution =
+        quote.billingUnit === "shift" ||
+        quote.billingUnit === "day" ||
+        quote.mix != null;
+      const result = await AppointmentService.createAppointments({
+        clinicId: consultorio.id,
+        userId: user.id,
+        date: dateStr,
+        selectedTimes: times,
+        notes: appointmentData.notes,
+        valuePerSession: useTotalDistribution ? undefined : quote.unitPrice,
+        totalBookingValue: useTotalDistribution ? quote.total : undefined,
+      });
+      if (result.error) {
+        showToast(result.error, "error");
+        return;
+      }
+    }
+
+    showToast("Agendamento criado com sucesso!", "success");
     setIsAppointmentModalOpen(false);
   };
 
-
-
-
   const nextImage = () => {
-    setCurrentImageIndex((prev) => 
-      prev === consultorio.images.length - 1 ? 0 : prev + 1
+    setCurrentImageIndex((prev) =>
+      prev === consultorio.images.length - 1 ? 0 : prev + 1,
     );
   };
 
   const prevImage = () => {
-    setCurrentImageIndex((prev) => 
-      prev === 0 ? consultorio.images.length - 1 : prev - 1
+    setCurrentImageIndex((prev) =>
+      prev === 0 ? consultorio.images.length - 1 : prev - 1,
     );
   };
 
@@ -117,11 +173,7 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
   };
 
   const renderStar = () => {
-    return (
-      <span className="text-lg text-yellow-400">
-        ★
-      </span>
-    );
+    return <span className="text-lg text-yellow-400">★</span>;
   };
 
   const getSimilarConsultorios = (): Clinic[] => {
@@ -131,14 +183,14 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
     return [];
   };
 
-
-
   if (!consultorio) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Consultório não encontrado</h1>
-          <button 
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            Espaço não encontrado
+          </h1>
+          <button
             onClick={() => router.back()}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
           >
@@ -154,9 +206,13 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Dados do consultório incompletos</h1>
-          <p className="text-gray-600 mb-4">Alguns dados essenciais estão ausentes.</p>
-          <button 
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            Dados do espaço incompletos
+          </h1>
+          <p className="text-gray-600 mb-4">
+            Alguns dados essenciais estão ausentes.
+          </p>
+          <button
             onClick={() => router.back()}
             className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
           >
@@ -171,10 +227,16 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
     <>
       <Head>
         <title>{consultorio.title} - Sublease</title>
-        <meta name="description" content={`Consultório ${consultorio.title} localizado em ${formatDetailedAddress(consultorio)}. R$ ${consultorio.price.toFixed(2).replace('.', ',')}/hora.`} />
-        <meta name="keywords" content={`consultório, sublocação, ${consultorio.specialties.map(s => getSpecialtyLabel(s)).join(', ')}, ${consultorio.city}`} />
+        <meta
+          name="description"
+          content={`Espaço ${consultorio.title} localizado em ${formatDetailedAddress(consultorio)}. R$ ${formatPriceBrl(consultorio.price)}/hora.`}
+        />
+        <meta
+          name="keywords"
+          content={`espaço, sublocação, ${consultorio.specialties.map((s) => getSpecialtyLabel(s)).join(", ")}, ${consultorio.city}`}
+        />
       </Head>
-      
+
       <div className="min-h-screen bg-gray-50">
         {/* Header com botão voltar */}
         <div className="bg-white shadow-sm border-b mt-16">
@@ -185,351 +247,618 @@ const ConsultorioPage = ({ consultorio, hasAvailability }: ConsultorioPageProps)
                 href={`/consultorio/editar/${consultorio.id}`}
                 className="bg-[#2b9af3] hover:bg-[#1e7ce6] text-white px-4 py-2 rounded-lg transition-colors duration-200 font-medium"
               >
-                Editar consultório
+                Editar espaço
               </Link>
             )}
           </div>
         </div>
 
-        {consultorio?.status === 'pending' && (
+        {consultorio?.status === "pending" && (
           <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                <svg
+                  className="h-5 w-5 text-yellow-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
               <div className="ml-3">
                 <p className="text-sm text-yellow-700">
-                  <strong>Consultório em análise:</strong> Este consultório está aguardando verificação e aprovação. A sublocação não está disponível no momento.
+                  <strong>Espaço em análise:</strong> Este espaço está
+                  aguardando verificação e aprovação. A sublocação não está
+                  disponível no momento.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {/* Informações principais */}
-        <div className="bg-white rounded-3xl shadow-md overflow-hidden mb-8">
-          {/* Slider de imagens */}
-          <div className="relative h-96 bg-gray-200 overflow-hidden">
-            {/* Imagem atual */}
-            {consultorio.images && consultorio.images.length > 0 && consultorio.images[currentImageIndex] ? (
-              <Image 
-                src={consultorio.images[currentImageIndex]} 
-                alt={`${consultorio.title} - Foto ${currentImageIndex + 1}`}
-                width={800}
-                height={384}
-                className="w-full h-full object-cover transition-opacity duration-300"
-                onError={(e) => {
-                  e.currentTarget.src = '/office-empty.jpg';
-                }}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <div className="text-center text-gray-500">
-                  <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-lg font-medium">Nenhuma foto disponível</p>
-                  <p className="text-sm">Este consultório ainda não possui fotos cadastradas</p>
-                </div>
-              </div>
-            )}
-
-            {/* Stamp */}
-            {consultorio.stamp && (
-              <div className={`absolute top-4 left-4 px-4 py-2 rounded-full text-sm font-medium z-10 ${
-                consultorio.stamp === 'new' 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-orange-100 text-orange-800'
-              }`}>
-                {consultorio.stamp === 'new' ? 'Novo!' : 'Em Alta!'}
-              </div>
-            )}
-
-            {/* Botões de navegação */}
-            {consultorio.images.length > 1 && (
-              <>
-                {/* Botão anterior */}
-                <button
-                  onClick={prevImage}
-                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200 z-10 cursor-pointer"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                </button>
-
-                {/* Botão próximo */}
-                <button
-                  onClick={nextImage}
-                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200 z-10 cursor-pointer"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-
-                {/* Indicadores */}
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2 z-10">
-                  {consultorio.images.map((_, index) => (
-                    <button
-                      key={index}
-                      onClick={() => goToImage(index)}
-                      className={`w-3 h-3 rounded-full transition-colors duration-200 ${
-                        index === currentImageIndex 
-                          ? 'bg-white' 
-                          : 'bg-white/50 hover:bg-white/75'
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                {/* Contador de imagens */}
-                <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm z-10">
-                  {currentImageIndex + 1} / {consultorio.images.length}
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="p-8">
-            {/* Título e preço */}
-            <div className="flex justify-between items-start mb-4">
-              <h1 className="text-3xl font-bold text-gray-900 flex-1 pr-4">{consultorio.title}</h1>
-              <span className="text-3xl font-bold text-[#2b9af3]">R$ {consultorio.price.toFixed(2).replace('.', ',')}/hora</span>
-            </div>
-
-            {/* Endereço */}
-            <p className="text-gray-600 text-lg mb-4">{formatDetailedAddress(consultorio)}</p>
-
-            {/* Rating */}
-            {rating > 0 && (
-              <div className="flex items-center gap-3 mb-6">
-                <div className="flex items-center">
-                  {renderStar()}
-                </div>
-                <span className="text-lg text-gray-600 font-medium">
-                  {rating.toFixed(1)}
-                </span>
-              </div>
-            )}
-
-            {/* Features */}
-            <div className="flex gap-3 flex-wrap mb-8">
-              {consultorio.features.map((feature) => {
-                const featureInfo = getFeatureInfo(feature as SublocationPlus);
-                return (
-                  <div key={feature} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-                    <span className="text-lg">{featureInfo.icon}</span>
-                    <span>{featureInfo.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Especialidades */}
-            {consultorio.specialties && consultorio.specialties.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Especialidades autorizadas</h2>
-                <div className="flex gap-2 flex-wrap">
-                  {consultorio.specialties.map((specialty) => (
-                    <span key={specialty} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                      {getSpecialtyLabel(specialty)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Descrição */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Descrição</h2>
-              <p className="text-gray-600 leading-relaxed">{consultorio.description}</p>
-            </div>
-
-            {/* Disponibilidade */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Disponibilidade</h2>
-              {hasAvailability ? (
-                <div className="bg-gray-50 p-6 rounded-lg">
-                  <div className="space-y-3">
-                    {formatAvailability(consultorio.availability || [])?.split('\n').map((schedule, index) => (
-                      <div key={index} className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0"></div>
-                        <p className="text-gray-700 font-medium">{schedule}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          {/* Informações principais */}
+          <div className="bg-white rounded-3xl shadow-md overflow-hidden mb-8">
+            {/* Slider de imagens */}
+            <div className="relative h-96 bg-gray-200 overflow-hidden">
+              {/* Imagem atual */}
+              {consultorio.images &&
+              consultorio.images.length > 0 &&
+              consultorio.images[currentImageIndex] ? (
+                <Image
+                  src={consultorio.images[currentImageIndex]}
+                  alt={`${consultorio.title} - Foto ${currentImageIndex + 1}`}
+                  width={800}
+                  height={384}
+                  className="w-full h-full object-cover transition-opacity duration-300"
+                  onError={(e) => {
+                    e.currentTarget.src = "/office-empty.jpg";
+                  }}
+                />
               ) : (
-                <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <svg className="w-6 h-6 text-yellow-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center text-gray-500">
+                    <svg
+                      className="w-16 h-16 mx-auto mb-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
                     </svg>
-                    <div>
-                      <p className="text-yellow-800 font-medium">Disponibilidade não configurada</p>
-                      <p className="text-yellow-700 text-sm mt-1">
-                        Este consultório ainda não possui horários de disponibilidade definidos. 
-                        Entre em contato com o proprietário para mais informações.
-                      </p>
-                    </div>
+                    <p className="text-lg font-medium">
+                      Nenhuma foto disponível
+                    </p>
+                    <p className="text-sm">
+                      Este espaço ainda não possui fotos cadastradas
+                    </p>
                   </div>
                 </div>
               )}
+
+              {/* Stamp */}
+              {consultorio.stamp && (
+                <div
+                  className={`absolute top-4 left-4 px-4 py-2 rounded-full text-sm font-medium z-10 ${
+                    consultorio.stamp === "new"
+                      ? "bg-green-100 text-green-800"
+                      : "bg-orange-100 text-orange-800"
+                  }`}
+                >
+                  {consultorio.stamp === "new" ? "Novo!" : "Em Alta!"}
+                </div>
+              )}
+
+              {/* Botões de navegação */}
+              {consultorio.images.length > 1 && (
+                <>
+                  {/* Botão anterior */}
+                  <button
+                    onClick={prevImage}
+                    className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200 z-10 cursor-pointer"
+                  >
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 19l-7-7 7-7"
+                      />
+                    </svg>
+                  </button>
+
+                  {/* Botão próximo */}
+                  <button
+                    onClick={nextImage}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200 z-10 cursor-pointer"
+                  >
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </button>
+
+                  {/* Indicadores */}
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2 z-10">
+                    {consultorio.images.map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={() => goToImage(index)}
+                        className={`w-3 h-3 rounded-full transition-colors duration-200 ${
+                          index === currentImageIndex
+                            ? "bg-white"
+                            : "bg-white/50 hover:bg-white/75"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Contador de imagens */}
+                  <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm z-10">
+                    {currentImageIndex + 1} / {consultorio.images.length}
+                  </div>
+                </>
+              )}
             </div>
 
+            <div className="p-8">
+              {/* Título e preço */}
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <h1 className="flex-1 pr-4 text-3xl font-bold text-gray-900">
+                  {consultorio.title}
+                </h1>
+                <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+                  <span className="text-3xl font-bold text-[#2b9af3]">
+                    R$ {formatPriceBrl(consultorio.price)}/hora
+                  </span>
+                  {consultorio.price_per_shift != null &&
+                    consultorio.price_per_shift > 0 && (
+                      <span className="text-sm font-medium text-gray-600">
+                        R$ {formatPriceBrl(consultorio.price_per_shift)}/turno
+                      </span>
+                    )}
+                  {consultorio.price_per_day != null &&
+                    consultorio.price_per_day > 0 && (
+                      <span className="text-sm font-medium text-gray-600">
+                        R$ {formatPriceBrl(consultorio.price_per_day)}/diária
+                      </span>
+                    )}
+                  {consultorio.price_per_month != null &&
+                    consultorio.price_per_month > 0 && (
+                      <span className="text-sm font-medium text-gray-600">
+                        R$ {formatPriceBrl(consultorio.price_per_month)}/mês
+                      </span>
+                    )}
+                </div>
+              </div>
 
-            {/* Localização */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">Localização</h2>
-              <div className="bg-gray-100 rounded-lg overflow-hidden">
-                {/* Mapa interativo do Google Maps */}
-                {/* <GoogleMap 
+              {/* Endereço */}
+              <p className="text-gray-600 text-lg mb-4">
+                {formatDetailedAddress(consultorio)}
+              </p>
+
+              {/* Rating */}
+              {rating > 0 && (
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="flex items-center">{renderStar()}</div>
+                  <span className="text-lg text-gray-600 font-medium">
+                    {rating.toFixed(1)}
+                  </span>
+                </div>
+              )}
+
+              {/* Features */}
+              <div className="flex gap-3 flex-wrap mb-8">
+                {(consultorio.features || []).map((feature) => {
+                  const featureInfo = getFeatureInfo(
+                    feature as SublocationPlus,
+                  );
+                  return (
+                    <div
+                      key={feature}
+                      className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+                    >
+                      <span className="text-lg">{featureInfo.icon}</span>
+                      <span>{featureInfo.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {consultorio.included_equipment &&
+                consultorio.included_equipment.length > 0 && (
+                  <div className="mb-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <span
+                        className="hidden h-8 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                        aria-hidden
+                      />
+                      <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                        Equipamentos inclusos
+                      </h2>
+                    </div>
+                    <ul className="space-y-2 rounded-xl border border-[#2b9af3]/20 bg-gradient-to-br from-[#2b9af3]/[0.06] to-white px-4 py-5 sm:px-6">
+                      {consultorio.included_equipment.map((item, index) => (
+                        <li
+                          key={`${index}-${item.slice(0, 24)}`}
+                          className="flex gap-3 text-gray-700"
+                        >
+                          <span
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2b9af3]"
+                            aria-hidden
+                          />
+                          <span className="leading-relaxed">{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+              {/* Categorias */}
+              {consultorio.specialties &&
+                consultorio.specialties.length > 0 && (
+                  <div className="mb-8">
+                    <div className="mb-4 flex items-center gap-3">
+                      <span
+                        className="hidden h-8 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                        aria-hidden
+                      />
+                      <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                        Categorias autorizadas
+                      </h2>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {consultorio.specialties.map((specialty) => (
+                        <span
+                          key={specialty}
+                          className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm"
+                        >
+                          {getSpecialtyLabel(specialty)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {consultorio.accessibility_features &&
+                consultorio.accessibility_features.length > 0 && (
+                  <div className="mb-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <span
+                        className={`hidden h-8 w-1.5 shrink-0 rounded-full sm:block ${ACCESSIBILITY_SECTION_BAR_GRADIENT}`}
+                        aria-hidden
+                      />
+                      <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                        Acessibilidade
+                      </h2>
+                    </div>
+                    <div className="flex flex-wrap gap-3">
+                      {consultorio.accessibility_features.map((key) => {
+                        const info = getAccessibilityInfo(
+                          key as ClinicAccessibility,
+                        );
+                        return (
+                          <div
+                            key={key}
+                            className="flex items-center gap-2 rounded-lg border border-[#2b9af3]/25 bg-[#2b9af3]/[0.07] px-4 py-2 text-sm text-gray-800"
+                          >
+                            <span className="text-lg">{info.icon}</span>
+                            <span>{info.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+              {/* Descrição */}
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                  Descrição
+                </h2>
+                <p className="text-gray-600 leading-relaxed">
+                  {consultorio.description}
+                </p>
+              </div>
+
+              {consultorio.rules && consultorio.rules.trim().length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center gap-3 mb-4">
+                    <span
+                      className="hidden h-8 w-1.5 shrink-0 rounded-full bg-red-600 sm:block"
+                      aria-hidden
+                    />
+                    <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                      Regras do espaço
+                    </h2>
+                  </div>
+                  <div className="rounded-xl border border-[#2b9af3]/20 bg-gradient-to-br from-[#2b9af3]/[0.06] to-white px-4 py-5 sm:px-6">
+                    <p className="text-gray-700 leading-relaxed whitespace-pre-line">
+                      {consultorio.rules.trim()}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Disponibilidade */}
+              <div className="mb-8">
+                <div className="mb-4 flex items-center gap-3">
+                  <span
+                    className="hidden h-8 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Disponibilidade
+                  </h2>
+                </div>
+                {hasAvailability ? (
+                  <div className="rounded-xl border border-[#2b9af3]/20 bg-gradient-to-br from-[#2b9af3]/[0.06] to-white p-6 sm:px-6">
+                    <div className="space-y-3">
+                      {formatAvailability(consultorio.availability || [])
+                        ?.split("\n")
+                        .map((schedule, index) => (
+                          <div key={index} className="flex items-center gap-3">
+                            <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2b9af3]" />
+                            <p className="font-medium text-gray-700">
+                              {schedule}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <svg
+                        className="w-6 h-6 text-yellow-600 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                        />
+                      </svg>
+                      <div>
+                        <p className="text-yellow-800 font-medium">
+                          Disponibilidade não configurada
+                        </p>
+                        <p className="text-yellow-700 text-sm mt-1">
+                          Este espaço ainda não possui horários de
+                          disponibilidade definidos. Entre em contato com o
+                          proprietário para mais informações.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Localização */}
+              <div className="mb-8">
+                <div className="mb-4 flex items-center gap-3">
+                  <span
+                    className="hidden h-8 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Localização
+                  </h2>
+                </div>
+                <div className="overflow-hidden rounded-xl bg-gray-100">
+                  {/* Mapa interativo do Google Maps */}
+                  {/* <GoogleMap 
                   address={consultorio.address}
                   height="h-64"
                   className="rounded-lg"
                 /> */}
-              </div>
-              
-              {/* Endereço completo */}
-              <div className="mt-4">
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Endereço completo</h3>
-                <p className="text-gray-600 leading-relaxed">{formatDetailedAddress(consultorio)}</p>
-              </div>
-            </div>
+                </div>
 
-
-            {/* Botões de agendamento - só aparece se o consultório estiver ativo */}
-            {consultorio.status === 'active' && (
-              <div className="flex gap-4">
-                {/* Botão de agendamento na plataforma - aparece se hasAppointment for true */}
-                {!shouldUseWhatsApp() && hasAvailability && (
-                  <Button 
-                    size="lg"
-                    className="flex-1"
-                    onClick={handleOpenAppointmentModal}
-                  >
-                    <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Agendar
-                  </Button>
-                )}
-                
-                {/* Botão do WhatsApp - aparece se hasAppointment for false */}
-                {shouldUseWhatsApp() && (
-                  <>
-                    {ownerLoading ? (
-                      <Button 
-                        size="lg"
-                        className="flex-1 bg-green-600 text-white"
-                        disabled
-                      >
-                        <svg className="animate-spin -ml-1 mr-3 h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Carregando...
-                      </Button>
-                    ) : owner ? (
-                      <Button 
-                        size="lg"
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                        onClick={() => window.open(generateWhatsAppLink(), '_blank')}
-                      >
-                        <svg className="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                        </svg>
-                        Enviar solicitação via WhatsApp
-                      </Button>
-                    ) : (
-                      <div className="flex-1 bg-gray-100 p-6 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <svg className="w-6 h-6 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                          </svg>
-                          <div>
-                            <p className="text-gray-700 font-medium">Informações de contato não disponíveis</p>
-                            <p className="text-gray-600 text-sm mt-1">
-                              Não foi possível carregar as informações de contato do proprietário.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Mensagem quando não há disponibilidade para agendamento */}
-            {consultorio.status === 'active' && !hasAvailability && !shouldUseWhatsApp() && (
-              <div className="bg-gray-100 p-6 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <svg className="w-6 h-6 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <p className="text-gray-700 font-medium">Agendamento temporariamente indisponível</p>
-                    <p className="text-gray-600 text-sm mt-1">
-                      Este consultório não possui horários de disponibilidade configurados. 
-                      Entre em contato com o proprietário para mais informações.
-                    </p>
-                  </div>
+                <div className="mt-4 rounded-xl border border-[#2b9af3]/20 bg-gradient-to-br from-[#2b9af3]/[0.06] to-white px-4 py-5 sm:px-6">
+                  <p className="mb-2 text-sm font-semibold text-gray-500">
+                    Endereço completo
+                  </p>
+                  <p className="leading-relaxed text-gray-700">
+                    {formatDetailedAddress(consultorio)}
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Consultórios parecidos */}
-        {getSimilarConsultorios().length > 0 && (
-          <div className="p-8">
-            <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
-              Consultórios parecidos
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {getSimilarConsultorios().map((similarConsultorio) => (
-                <SublocationCard
-                  key={similarConsultorio.id}
-                  id={similarConsultorio.id || ''}
-                  title={similarConsultorio.title}
-                  address={formatDetailedAddress(similarConsultorio)}
-                  price={similarConsultorio.price.toString()}
-                  stamp={similarConsultorio.stamp}
-                  plus={similarConsultorio.plus}
-                  rating={0} // Por enquanto 0, pois getSimilarConsultorios retorna array vazio
-                />
-              ))}
+              {/* Botões de agendamento - só aparece se o espaço estiver ativo */}
+              {consultorio.status === "active" && (
+                <div className="flex gap-4">
+                  {/* Botão de agendamento na plataforma - aparece se hasAppointment for true */}
+                  {!shouldUseWhatsApp() && hasAvailability && (
+                    <Button
+                      size="lg"
+                      className="flex-1"
+                      onClick={handleOpenAppointmentModal}
+                    >
+                      <svg
+                        className="w-6 h-6 mr-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                      Agendar
+                    </Button>
+                  )}
+
+                  {/* Botão do WhatsApp - aparece se hasAppointment for false */}
+                  {shouldUseWhatsApp() && (
+                    <>
+                      {ownerLoading ? (
+                        <Button
+                          size="lg"
+                          className="flex-1 bg-green-600 text-white"
+                          disabled
+                        >
+                          <svg
+                            className="animate-spin -ml-1 mr-3 h-6 w-6 text-white"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            ></circle>
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                          </svg>
+                          Carregando...
+                        </Button>
+                      ) : owner ? (
+                        <Button
+                          size="lg"
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() =>
+                            window.open(generateWhatsAppLink(), "_blank")
+                          }
+                        >
+                          <svg
+                            className="w-6 h-6 mr-3"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488" />
+                          </svg>
+                          Enviar solicitação via WhatsApp
+                        </Button>
+                      ) : (
+                        <div className="flex-1 bg-gray-100 p-6 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <svg
+                              className="w-6 h-6 text-gray-500 flex-shrink-0"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                              />
+                            </svg>
+                            <div>
+                              <p className="text-gray-700 font-medium">
+                                Informações de contato não disponíveis
+                              </p>
+                              <p className="text-gray-600 text-sm mt-1">
+                                Não foi possível carregar as informações de
+                                contato do proprietário.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Mensagem quando não há disponibilidade para agendamento */}
+              {consultorio.status === "active" &&
+                !hasAvailability &&
+                !shouldUseWhatsApp() && (
+                  <div className="bg-gray-100 p-6 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <svg
+                        className="w-6 h-6 text-gray-500 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                      <div>
+                        <p className="text-gray-700 font-medium">
+                          Agendamento temporariamente indisponível
+                        </p>
+                        <p className="text-gray-600 text-sm mt-1">
+                          Este espaço não possui horários de disponibilidade
+                          configurados. Entre em contato com o proprietário para
+                          mais informações.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
-        )}
 
-        {/* Seção de Comentários */}
-        <div className="mb-8">
-          <CommentsSection 
-            clinicId={consultorio.id || ''}
-            clinicTitle={consultorio.title}
-            onRatingComputed={setRating}
-          />
+          {/* Espaços parecidos */}
+          {getSimilarConsultorios().length > 0 && (
+            <div className="p-8">
+              <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
+                Espaços parecidos
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {getSimilarConsultorios().map((similarConsultorio) => (
+                  <SublocationCard
+                    key={similarConsultorio.id}
+                    id={similarConsultorio.id || ""}
+                    title={similarConsultorio.title}
+                    address={formatDetailedAddress(similarConsultorio)}
+                    price={similarConsultorio.price.toString()}
+                    stamp={similarConsultorio.stamp}
+                    plus={similarConsultorio.plus}
+                    rating={0} // Por enquanto 0, pois getSimilarConsultorios retorna array vazio
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Seção de Comentários */}
+          <div className="mb-8">
+            <CommentsSection
+              clinicId={consultorio.id || ""}
+              clinicTitle={consultorio.title}
+              onRatingComputed={setRating}
+            />
+          </div>
         </div>
-
       </div>
-    </div>
 
-    {/* Modal de Agendamento */}
-    <AppointmentModal
-      isOpen={isAppointmentModalOpen}
-      onClose={() => setIsAppointmentModalOpen(false)}
-      onSubmit={handleAppointmentSubmit}
-      clinicTitle={consultorio.title}
-      clinicPrice={consultorio.price}
-      clinicAvailability={consultorio.availability}
-      existingAppointments={existingAppointments}
-    />
+      {/* Modal de Agendamento */}
+      <AppointmentModal
+        isOpen={isAppointmentModalOpen}
+        onClose={() => setIsAppointmentModalOpen(false)}
+        onSubmit={handleAppointmentSubmit}
+        clinicTitle={consultorio.title}
+        clinicPrice={consultorio.price}
+        pricePerShift={consultorio.price_per_shift}
+        pricePerDay={consultorio.price_per_day}
+        clinicAvailability={consultorio.availability}
+        existingAppointments={existingAppointments}
+      />
     </>
   );
 };
@@ -557,6 +886,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     state: string;
     zip_code?: string | null;
     price: number | string;
+    price_per_shift?: number | string | null;
+    price_per_day?: number | string | null;
+    price_per_month?: number | string | null;
     specialty?: string | null;
     specialties?: string[] | null;
     images?: string[] | null;
@@ -570,37 +902,51 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     rating?: number | string | null;
     created_at?: string | null;
     updated_at?: string | null;
+    rules?: string | null;
+    included_equipment?: string[] | null;
+    accessibility_features?: string[] | null;
   };
 
   const parseNumber = (value: unknown): number => {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const normalized = value.replace(',', '.');
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const normalized = value.replace(",", ".");
       const parsed = parseFloat(normalized);
       return Number.isFinite(parsed) ? parsed : 0;
     }
     return 0;
   };
 
-  const normalizeStringArray = (value: unknown): string[] => {
-    if (!Array.isArray(value)) return [];
-    return value.filter((item): item is string => typeof item === 'string');
+  const parseOptionalClinicPrice = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    const n = parseNumber(value);
+    return n > 0 ? n : null;
   };
 
-  const normalizeAvailability = (value: unknown): Clinic['availability'] => {
+  const normalizeStringArray = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === "string");
+  };
+
+  const normalizeAvailability = (value: unknown): Clinic["availability"] => {
     if (!Array.isArray(value)) return undefined;
     const normalized = value
       .map((item) => {
-        if (!item || typeof item !== 'object') return null;
-        const obj = item as { id?: string; day?: string; startTime?: string; endTime?: string };
+        if (!item || typeof item !== "object") return null;
+        const obj = item as {
+          id?: string;
+          day?: string;
+          startTime?: string;
+          endTime?: string;
+        };
 
         if (!obj.day || !obj.startTime || !obj.endTime) return null;
 
         return {
-          id: obj.id || '',
+          id: obj.id || "",
           day: obj.day,
           startTime: obj.startTime,
-          endTime: obj.endTime
+          endTime: obj.endTime,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
@@ -612,9 +958,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     const supabase = createAnonSupabaseClient();
 
     const { data, error } = await supabase
-      .from('clinics')
-      .select('*')
-      .eq('id', id)
+      .from("clinics")
+      .select("*")
+      .eq("id", id)
       .single();
 
     if (error || !data) {
@@ -626,6 +972,12 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     const images = normalizeStringArray(row.images);
     const features = normalizeStringArray(row.features);
     const specialties = normalizeStringArray(row.specialties);
+    const included_equipment = normalizeStringArray(row.included_equipment)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const accessibility_features = normalizeAccessibilityFeatures(
+      row.accessibility_features,
+    );
 
     const availability = normalizeAvailability(row.availability) || [];
     const hasAvailability = availability.length > 0;
@@ -636,6 +988,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       user_id: row.user_id,
       title: row.title,
       description: row.description,
+      rules: row.rules ?? null,
+      included_equipment,
+      accessibility_features,
       cep: row.cep ?? null,
       street: row.street ?? null,
       number: row.number ?? null,
@@ -645,28 +1000,33 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       state: row.state,
       zip_code: row.zip_code ?? null,
       price: parseNumber(row.price),
-      specialty: row.specialty || '',
+      price_per_shift: parseOptionalClinicPrice(row.price_per_shift),
+      price_per_day: parseOptionalClinicPrice(row.price_per_day),
+      price_per_month: parseOptionalClinicPrice(row.price_per_month),
+      specialty: row.specialty || "",
       specialties,
       images,
       features,
       google_maps_url: row.google_maps_url ?? null,
       availability,
       hasAppointment:
-        typeof row.hasappointment === 'boolean' ? row.hasappointment : null,
-      status: (row.status as Clinic['status']) || null,
-      views: typeof row.views === 'number' ? row.views : 0,
-      bookings: typeof row.bookings === 'number' ? row.bookings : 0,
+        typeof row.hasappointment === "boolean" ? row.hasappointment : null,
+      status: (row.status as Clinic["status"]) || null,
+      views: typeof row.views === "number" ? row.views : 0,
+      bookings: typeof row.bookings === "number" ? row.bookings : 0,
       rating:
-        row.rating !== null && row.rating !== undefined ? parseNumber(row.rating) : null,
+        row.rating !== null && row.rating !== undefined
+          ? parseNumber(row.rating)
+          : null,
       created_at: row.created_at || nowIso,
-      updated_at: row.updated_at || nowIso
+      updated_at: row.updated_at || nowIso,
     } as unknown as Consultorio;
 
     return {
       props: {
         consultorio,
-        hasAvailability
-      }
+        hasAvailability,
+      },
     };
   } catch {
     return { notFound: true };

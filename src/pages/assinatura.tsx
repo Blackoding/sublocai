@@ -21,6 +21,7 @@ const PLAN_DETAILS: Record<
     priceLabel: 'R$39/mês',
     description: 'Mais salas, mais agendamentos e controle no dashboard',
     features: [
+      'Tudo do plano gratuito',
       'Até 6 salas',
       'Agendamentos ilimitados',
       'Dashboard'
@@ -29,12 +30,11 @@ const PLAN_DETAILS: Record<
   pro: {
     title: 'Avançado',
     priceLabel: 'R$79/mês',
-    description: 'Seu atendimento com suporte e pagamento online',
+    description: 'Mais salas e suporte prioritário por WhatsApp',
     features: [
       'Tudo do plano Básico',
       'Até 20 salas',
-      'Suporte por WhatsApp',
-      'Pagamento online'
+      'Suporte por WhatsApp'
     ]
   }
 };

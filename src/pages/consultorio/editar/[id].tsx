@@ -1,20 +1,44 @@
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
-import Link from 'next/link';
-import { GetServerSideProps } from 'next';
-import Head from 'next/head';
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import Select from '@/components/Select';
-import MultiSelect from '@/components/MultiSelect';
-import Checkbox from '@/components/Checkbox';
-import Loading from '@/components/Loading';
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/router";
+import Link from "next/link";
+import { GetServerSideProps } from "next";
+import Head from "next/head";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
+import Select from "@/components/Select";
+import MultiSelect from "@/components/MultiSelect";
+import Checkbox from "@/components/Checkbox";
+import Loading from "@/components/Loading";
 // import { SublocationPlus } from '@/types';
-import { SPECIALTIES } from '@/constants/specialties';
-import { useAuthStore } from '@/stores/authStore';
-import { useToastStore } from '@/stores/toastStore';
-import { consultarCep, formatarCep, validarCep } from '@/services/public/cepService';
-import { createAnonSupabaseClient } from '@/config/supabase';
+import {
+  ACCESSIBILITY_SECTION_BAR_GRADIENT,
+  ALL_ACCESSIBILITY_OPTIONS,
+  normalizeAccessibilityFeatures,
+} from "@/constants/accessibility";
+import { ALL_FEATURES } from "@/constants/features";
+import { SPECIALTIES } from "@/constants/specialties";
+import { useAuthStore } from "@/stores/authStore";
+import { useToastStore } from "@/stores/toastStore";
+import {
+  consultarCep,
+  formatarCep,
+  validarCep,
+} from "@/services/public/cepService";
+import { createAnonSupabaseClient } from "@/config/supabase";
+import {
+  CLINIC_PRICING_FIELD_HINTS,
+  formatPriceBrl,
+  parseOptionalPriceField,
+} from "@/constants/clinicPricing";
+import type { ClinicAccessibility } from "@/types";
+
+const HOURLY_BUSINESS_PATTERN_SLOTS = Array.from({ length: 10 }, (_, i) => {
+  const h = 8 + i;
+  return {
+    startTime: `${String(h).padStart(2, "0")}:00`,
+    endTime: `${String(h + 1).padStart(2, "0")}:00`,
+  };
+});
 
 interface Consultorio {
   id: string;
@@ -29,16 +53,27 @@ interface Consultorio {
   state: string;
   zip_code?: string; // Campo legado
   price: number;
+  price_per_shift?: number | null;
+  price_per_day?: number | null;
+  price_per_month?: number | null;
   description: string;
   images: string[];
   features: string[];
   specialty: string; // Legacy field
   specialties: string[]; // New field
   google_maps_url?: string; // URL do Google Maps
-  availability?: { id: string; day: string; startTime: string; endTime: string }[]; // Horários de disponibilidade
+  rules?: string | null;
+  included_equipment?: string[];
+  accessibility_features?: string[];
+  availability?: {
+    id: string;
+    day: string;
+    startTime: string;
+    endTime: string;
+  }[]; // Horários de disponibilidade
   hasappointment?: boolean; // Campo do banco (minúsculo) - Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
   hasAppointment?: boolean; // Campo mapeado (camelCase) - Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
-  status: 'pending' | 'active' | 'inactive';
+  status: "pending" | "active" | "inactive";
   views: number;
   bookings: number;
   created_at: string;
@@ -53,39 +88,60 @@ interface EditClinicPageProps {
 const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
   const router = useRouter();
   // const { id: _id } = router.query;
-  const { isAuthenticated, isLoading: authLoading, user, getCurrentUser } = useAuthStore();
+  const {
+    isAuthenticated,
+    isLoading: authLoading,
+    user,
+    getCurrentUser,
+  } = useAuthStore();
   const showToast = useToastStore((state) => state.showToast);
-  
-  
+
   const [formData, setFormData] = useState({
     // Basic information
-    title: '',
+    title: "",
     // Endereço detalhado
-    cep: '',
-    street: '',
-    number: '',
-    neighborhood: '',
-    complement: '',
-    city: '',
-    state: '',
-    price: '',
-    description: '',
-    googleMapsUrl: '',
-    
+    cep: "",
+    street: "",
+    number: "",
+    neighborhood: "",
+    complement: "",
+    city: "",
+    state: "",
+    priceHour: "",
+    priceShift: "",
+    priceDay: "",
+    priceMonth: "",
+    description: "",
+    rules: "",
+    includedEquipmentItems: [] as { id: string; value: string }[],
+    googleMapsUrl: "",
+
     // Images
-    images: [] as { id: string; file: File | null; preview: string; order: number }[],
-    
+    images: [] as {
+      id: string;
+      file: File | null;
+      preview: string;
+      order: number;
+    }[],
+
     // Features
     features: [] as string[],
-    
+
+    accessibilityFeatures: [] as ClinicAccessibility[],
+
     // Specialties
     specialties: [] as string[],
-    
+
     // Availability
-    availability: [] as { id: string; day: string; startTime: string; endTime: string }[],
-    
+    availability: [] as {
+      id: string;
+      day: string;
+      startTime: string;
+      endTime: string;
+    }[],
+
     // Configuração de agendamento
-    hasAppointment: true // Por padrão, permite agendamento na plataforma
+    hasAppointment: true, // Por padrão, permite agendamento na plataforma
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -96,35 +152,55 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
   // Opções de estados brasileiros
   const stateOptions = [
-    { value: '', label: 'Selecione o estado' },
-    { value: 'AC', label: 'Acre' },
-    { value: 'AL', label: 'Alagoas' },
-    { value: 'AP', label: 'Amapá' },
-    { value: 'AM', label: 'Amazonas' },
-    { value: 'BA', label: 'Bahia' },
-    { value: 'CE', label: 'Ceará' },
-    { value: 'DF', label: 'Distrito Federal' },
-    { value: 'ES', label: 'Espírito Santo' },
-    { value: 'GO', label: 'Goiás' },
-    { value: 'MA', label: 'Maranhão' },
-    { value: 'MT', label: 'Mato Grosso' },
-    { value: 'MS', label: 'Mato Grosso do Sul' },
-    { value: 'MG', label: 'Minas Gerais' },
-    { value: 'PA', label: 'Pará' },
-    { value: 'PB', label: 'Paraíba' },
-    { value: 'PR', label: 'Paraná' },
-    { value: 'PE', label: 'Pernambuco' },
-    { value: 'PI', label: 'Piauí' },
-    { value: 'RJ', label: 'Rio de Janeiro' },
-    { value: 'RN', label: 'Rio Grande do Norte' },
-    { value: 'RS', label: 'Rio Grande do Sul' },
-    { value: 'RO', label: 'Rondônia' },
-    { value: 'RR', label: 'Roraima' },
-    { value: 'SC', label: 'Santa Catarina' },
-    { value: 'SP', label: 'São Paulo' },
-    { value: 'SE', label: 'Sergipe' },
-    { value: 'TO', label: 'Tocantins' }
+    { value: "", label: "Selecione o estado" },
+    { value: "AC", label: "Acre" },
+    { value: "AL", label: "Alagoas" },
+    { value: "AP", label: "Amapá" },
+    { value: "AM", label: "Amazonas" },
+    { value: "BA", label: "Bahia" },
+    { value: "CE", label: "Ceará" },
+    { value: "DF", label: "Distrito Federal" },
+    { value: "ES", label: "Espírito Santo" },
+    { value: "GO", label: "Goiás" },
+    { value: "MA", label: "Maranhão" },
+    { value: "MT", label: "Mato Grosso" },
+    { value: "MS", label: "Mato Grosso do Sul" },
+    { value: "MG", label: "Minas Gerais" },
+    { value: "PA", label: "Pará" },
+    { value: "PB", label: "Paraíba" },
+    { value: "PR", label: "Paraná" },
+    { value: "PE", label: "Pernambuco" },
+    { value: "PI", label: "Piauí" },
+    { value: "RJ", label: "Rio de Janeiro" },
+    { value: "RN", label: "Rio Grande do Norte" },
+    { value: "RS", label: "Rio Grande do Sul" },
+    { value: "RO", label: "Rondônia" },
+    { value: "RR", label: "Roraima" },
+    { value: "SC", label: "Santa Catarina" },
+    { value: "SP", label: "São Paulo" },
+    { value: "SE", label: "Sergipe" },
+    { value: "TO", label: "Tocantins" },
   ];
+
+  const dayOptions = [
+    { value: "segunda", label: "Segunda-feira" },
+    { value: "terca", label: "Terça-feira" },
+    { value: "quarta", label: "Quarta-feira" },
+    { value: "quinta", label: "Quinta-feira" },
+    { value: "sexta", label: "Sexta-feira" },
+    { value: "sabado", label: "Sábado" },
+    { value: "domingo", label: "Domingo" },
+  ];
+
+  const dayShortLabel: Record<string, string> = {
+    segunda: "Seg",
+    terca: "Ter",
+    quarta: "Qua",
+    quinta: "Qui",
+    sexta: "Sex",
+    sabado: "Sáb",
+    domingo: "Dom",
+  };
 
   // Refs para os campos do formulário
   const fieldRefs = {
@@ -137,51 +213,84 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     city: useRef<HTMLInputElement>(null),
     state: useRef<HTMLInputElement>(null),
     googleMapsUrl: useRef<HTMLInputElement>(null),
-    price: useRef<HTMLInputElement>(null),
+    priceHour: useRef<HTMLInputElement>(null),
+    priceShift: useRef<HTMLInputElement>(null),
+    priceDay: useRef<HTMLInputElement>(null),
+    priceMonth: useRef<HTMLInputElement>(null),
     description: useRef<HTMLTextAreaElement>(null),
     specialties: useRef<HTMLDivElement>(null),
-    availability: useRef<HTMLDivElement>(null)
+    availability: useRef<HTMLDivElement>(null),
   };
 
   // Load clinic data
   useEffect(() => {
     if (consultorio) {
-      
       // Convert existing images to the expected format
-      const existingImages = (consultorio.images || []).map((imageUrl, index) => ({
-        id: `existing-${index}`,
-        file: null as File | null, // No file object for existing images
-        preview: imageUrl,
-        order: index
-      }));
+      const existingImages = (consultorio.images || []).map(
+        (imageUrl, index) => ({
+          id: `existing-${index}`,
+          file: null as File | null, // No file object for existing images
+          preview: imageUrl,
+          order: index,
+        }),
+      );
 
       // Filtrar e limpar dados de disponibilidade
-      const cleanAvailability = (consultorio.availability || []).map(item => ({
-        ...item,
-        // Se o dia estiver vazio, definir como string vazia (será validado)
-        day: item.day || '',
-        startTime: item.startTime || '',
-        endTime: item.endTime || ''
-      }));
+      const cleanAvailability = (consultorio.availability || []).map(
+        (item) => ({
+          ...item,
+          // Se o dia estiver vazio, definir como string vazia (será validado)
+          day: item.day || "",
+          startTime: item.startTime || "",
+          endTime: item.endTime || "",
+        }),
+      );
 
       const formDataToSet = {
-        title: consultorio.title || '',
+        title: consultorio.title || "",
         // Endereço detalhado
-        cep: consultorio.cep || '',
-        street: consultorio.street || '',
-        number: consultorio.number || '',
-        neighborhood: consultorio.neighborhood || '',
-        complement: consultorio.complement || '',
-        city: consultorio.city || '',
-        state: consultorio.state || '',
-        price: consultorio.price ? consultorio.price.toFixed(2).replace('.', ',') : '',
-        description: consultorio.description || '',
-        googleMapsUrl: consultorio.google_maps_url || '',
+        cep: consultorio.cep || "",
+        street: consultorio.street || "",
+        number: consultorio.number || "",
+        neighborhood: consultorio.neighborhood || "",
+        complement: consultorio.complement || "",
+        city: consultorio.city || "",
+        state: consultorio.state || "",
+        priceHour: consultorio.price
+          ? formatPriceBrl(consultorio.price)
+          : "",
+        priceShift:
+          consultorio.price_per_shift != null && consultorio.price_per_shift > 0
+            ? formatPriceBrl(consultorio.price_per_shift)
+            : "",
+        priceDay:
+          consultorio.price_per_day != null && consultorio.price_per_day > 0
+            ? formatPriceBrl(consultorio.price_per_day)
+            : "",
+        priceMonth:
+          consultorio.price_per_month != null && consultorio.price_per_month > 0
+            ? formatPriceBrl(consultorio.price_per_month)
+            : "",
+        description: consultorio.description || "",
+        rules: consultorio.rules || "",
+        includedEquipmentItems: (consultorio.included_equipment || []).map(
+          (value) => ({
+            id: Math.random().toString(36).substr(2, 9),
+            value,
+          }),
+        ),
+        googleMapsUrl: consultorio.google_maps_url || "",
         images: existingImages,
         features: consultorio.features || [],
+        accessibilityFeatures: normalizeAccessibilityFeatures(
+          consultorio.accessibility_features,
+        ) as ClinicAccessibility[],
         specialties: consultorio.specialties || [],
         availability: cleanAvailability,
-        hasAppointment: consultorio.hasappointment !== undefined ? consultorio.hasappointment : true
+        hasAppointment:
+          consultorio.hasappointment !== undefined
+            ? consultorio.hasappointment
+            : true,
       };
 
       setFormData(formDataToSet);
@@ -189,22 +298,22 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
   }, [consultorio]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && router.isReady && !isAuthenticated) {
+    if (typeof window !== "undefined" && router.isReady && !isAuthenticated) {
       getCurrentUser();
     }
   }, [isAuthenticated, router.isReady, getCurrentUser]);
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [field]: value
+      [field]: value,
     }));
-    
+
     // Clear field error when user starts typing
     if (errors[field]) {
-      setErrors(prev => ({
+      setErrors((prev) => ({
         ...prev,
-        [field]: ''
+        [field]: "",
       }));
     }
   };
@@ -213,49 +322,54 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
   const handleCepChange = async (cep: string) => {
     // Formatar CEP enquanto digita
     const formattedCep = formatarCep(cep);
-    handleInputChange('cep', formattedCep);
+    handleInputChange("cep", formattedCep);
 
     // Consultar CEP se tiver 8 dígitos
-    const cleanCep = cep.replace(/\D/g, '');
+    const cleanCep = cep.replace(/\D/g, "");
     if (cleanCep.length === 8 && validarCep(cleanCep)) {
       setIsConsultingCep(true);
-      
+
       try {
         const result = await consultarCep(cleanCep);
-        
+
         if (!result.erro) {
           // Preencher campos automaticamente
-          const cepData = result as { logradouro: string; bairro: string; localidade: string; uf: string };
-          setFormData(prev => ({
+          const cepData = result as {
+            logradouro: string;
+            bairro: string;
+            localidade: string;
+            uf: string;
+          };
+          setFormData((prev) => ({
             ...prev,
             cep: formattedCep,
-            street: cepData.logradouro || '',
-            neighborhood: cepData.bairro || '',
-            city: cepData.localidade || '',
-            state: cepData.uf || ''
+            street: cepData.logradouro || "",
+            neighborhood: cepData.bairro || "",
+            city: cepData.localidade || "",
+            state: cepData.uf || "",
           }));
-          
+
           // Limpar erros dos campos preenchidos
-          setErrors(prev => ({
+          setErrors((prev) => ({
             ...prev,
-            cep: '',
-            street: '',
-            neighborhood: '',
-            city: '',
-            state: ''
+            cep: "",
+            street: "",
+            neighborhood: "",
+            city: "",
+            state: "",
           }));
         } else {
           // CEP não encontrado
-          setErrors(prev => ({
+          setErrors((prev) => ({
             ...prev,
-            cep: 'CEP não encontrado'
+            cep: "CEP não encontrado",
           }));
         }
       } catch (error) {
-        console.error('Erro ao consultar CEP:', error);
-        setErrors(prev => ({
+        console.error("Erro ao consultar CEP:", error);
+        setErrors((prev) => ({
           ...prev,
-          cep: 'Erro ao consultar CEP'
+          cep: "Erro ao consultar CEP",
         }));
       } finally {
         setIsConsultingCep(false);
@@ -263,36 +377,95 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     }
   };
 
-  const addAvailability = () => {
+  const addAvailabilityForDay = (day: string) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      availability: [...prev.availability, { id, day: '', startTime: '', endTime: '' }]
+      availability: [
+        ...prev.availability,
+        { id, day, startTime: "", endTime: "" },
+      ],
     }));
   };
 
+  const applyHourlyPatternForDay = (day: string) => {
+    setFormData((prev) => {
+      const rest = prev.availability.filter((item) => item.day !== day);
+      const additions = HOURLY_BUSINESS_PATTERN_SLOTS.map(
+        ({ startTime, endTime }) => ({
+          id: Math.random().toString(36).substr(2, 9),
+          day,
+          startTime,
+          endTime,
+        }),
+      );
+      return { ...prev, availability: [...rest, ...additions] };
+    });
+  };
+
   const removeAvailability = (id: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      availability: prev.availability.filter(item => item.id !== id)
+      availability: prev.availability.filter((item) => item.id !== id),
     }));
   };
 
   const updateAvailability = (id: string, field: string, value: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      availability: prev.availability.map(item =>
-        item.id === id ? { ...item, [field]: value } : item
-      )
+      availability: prev.availability.map((item) =>
+        item.id === id ? { ...item, [field]: value } : item,
+      ),
     }));
   };
 
   const handleFeatureChange = (feature: string, checked: boolean) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      features: checked 
+      features: checked
         ? [...prev.features, feature]
-        : prev.features.filter(f => f !== feature)
+        : prev.features.filter((f) => f !== feature),
+    }));
+  };
+
+  const handleAccessibilityChange = (
+    key: ClinicAccessibility,
+    checked: boolean,
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      accessibilityFeatures: checked
+        ? [...prev.accessibilityFeatures, key]
+        : prev.accessibilityFeatures.filter((k) => k !== key),
+    }));
+  };
+
+  const addIncludedEquipmentItem = () => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setFormData((prev) => ({
+      ...prev,
+      includedEquipmentItems: [
+        ...prev.includedEquipmentItems,
+        { id, value: "" },
+      ],
+    }));
+  };
+
+  const updateIncludedEquipmentItem = (id: string, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      includedEquipmentItems: prev.includedEquipmentItems.map((item) =>
+        item.id === id ? { ...item, value } : item,
+      ),
+    }));
+  };
+
+  const removeIncludedEquipmentItem = (id: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      includedEquipmentItems: prev.includedEquipmentItems.filter(
+        (item) => item.id !== id,
+      ),
     }));
   };
 
@@ -300,7 +473,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.onerror = () => reject(new Error("Failed to read file"));
       reader.readAsDataURL(file);
     });
 
@@ -309,21 +482,21 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     const input = e.target;
 
     if (errors.images) {
-      setErrors(prev => ({
+      setErrors((prev) => ({
         ...prev,
-        images: ''
+        images: "",
       }));
     }
 
     const maxImages = 6;
     const maxSizeBytes = 10 * 1024 * 1024;
 
-    const allowedFiles = files.filter((file) => file.type.startsWith('image/'));
+    const allowedFiles = files.filter((file) => file.type.startsWith("image/"));
     const remainingSlots = Math.max(0, maxImages - formData.images.length);
     if (allowedFiles.length > remainingSlots) {
-      setErrors(prev => ({
+      setErrors((prev) => ({
         ...prev,
-        images: 'Você pode adicionar no máximo 6 fotos.'
+        images: "Você pode adicionar no máximo 6 fotos.",
       }));
       return;
     }
@@ -332,9 +505,9 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     const oversized = selectedFiles.find((file) => file.size > maxSizeBytes);
 
     if (oversized) {
-      setErrors(prev => ({
+      setErrors((prev) => ({
         ...prev,
-        images: 'A foto é muito grande. Tamanho máximo: 10MB por imagem.'
+        images: "A foto é muito grande. Tamanho máximo: 10MB por imagem.",
       }));
       return;
     }
@@ -344,10 +517,10 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
         const id = Math.random().toString(36).substr(2, 9);
         const preview = await readFileAsDataUrl(file);
         return { id, file, preview };
-      })
+      }),
     );
 
-    setFormData(prev => {
+    setFormData((prev) => {
       const startIndex = prev.images.length;
       return {
         ...prev,
@@ -355,41 +528,44 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
           ...prev.images,
           ...newImages.map((img, index) => ({
             ...img,
-            order: startIndex + index
-          }))
-        ]
+            order: startIndex + index,
+          })),
+        ],
       };
     });
 
-    input.value = '';
+    input.value = "";
   };
 
   const removeImage = (imageId: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      images: prev.images.filter(img => img.id !== imageId)
+      images: prev.images.filter((img) => img.id !== imageId),
     }));
   };
 
-  const moveImage = (imageId: string, direction: 'up' | 'down') => {
-    setFormData(prev => {
+  const moveImage = (imageId: string, direction: "up" | "down") => {
+    setFormData((prev) => {
       const images = [...prev.images];
-      const currentIndex = images.findIndex(img => img.id === imageId);
-      
+      const currentIndex = images.findIndex((img) => img.id === imageId);
+
       if (currentIndex === -1) return prev;
-      
-      const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      
+
+      const newIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
       if (newIndex < 0 || newIndex >= images.length) return prev;
-      
+
       // Troca as posições
-      [images[currentIndex], images[newIndex]] = [images[newIndex], images[currentIndex]];
-      
+      [images[currentIndex], images[newIndex]] = [
+        images[newIndex],
+        images[currentIndex],
+      ];
+
       // Atualiza a ordem
       images.forEach((img, index) => {
         img.order = index;
       });
-      
+
       return { ...prev, images };
     });
   };
@@ -398,71 +574,117 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.title.trim()) {
-      newErrors.title = 'Título é obrigatório';
+      newErrors.title = "Título é obrigatório";
     }
 
     // Validação dos campos de endereço
     if (!formData.cep.trim()) {
-      newErrors.cep = 'CEP é obrigatório';
-    } else if (!/^\d{5}-?\d{3}$/.test(formData.cep.replace(/\D/g, ''))) {
-      newErrors.cep = 'CEP deve ter o formato 12345-678';
+      newErrors.cep = "CEP é obrigatório";
+    } else if (!/^\d{5}-?\d{3}$/.test(formData.cep.replace(/\D/g, ""))) {
+      newErrors.cep = "CEP deve ter o formato 12345-678";
     }
 
     if (!formData.street.trim()) {
-      newErrors.street = 'Rua é obrigatória';
+      newErrors.street = "Rua é obrigatória";
     }
 
     if (!formData.number.trim()) {
-      newErrors.number = 'Número é obrigatório';
+      newErrors.number = "Número é obrigatório";
     }
 
     if (!formData.neighborhood.trim()) {
-      newErrors.neighborhood = 'Bairro é obrigatório';
+      newErrors.neighborhood = "Bairro é obrigatório";
     }
 
     if (!formData.city.trim()) {
-      newErrors.city = 'Cidade é obrigatória';
+      newErrors.city = "Cidade é obrigatória";
     }
 
     if (!formData.state.trim()) {
-      newErrors.state = 'Estado é obrigatório';
+      newErrors.state = "Estado é obrigatório";
     }
 
-    if (!formData.price.trim()) {
-      newErrors.price = 'Preço é obrigatório';
+    if (!formData.priceHour.trim()) {
+      newErrors.priceHour = "Valor por hora é obrigatório";
+    } else {
+      const numericHour = parseFloat(
+        formData.priceHour.replace(/[^\d,.-]/g, "").replace(",", "."),
+      );
+      if (isNaN(numericHour) || numericHour <= 0) {
+        newErrors.priceHour =
+          "Valor por hora deve ser um número válido maior que zero";
+      }
     }
+
+    const addOptionalPriceError = (raw: string, key: string) => {
+      if (!raw.trim()) return;
+      if (parseOptionalPriceField(raw) === null) {
+        newErrors[key] =
+          "Informe um valor válido maior que zero ou deixe em branco";
+      }
+    };
+    addOptionalPriceError(formData.priceShift, "priceShift");
+    addOptionalPriceError(formData.priceDay, "priceDay");
+    addOptionalPriceError(formData.priceMonth, "priceMonth");
 
     if (!formData.description.trim()) {
-      newErrors.description = 'Descrição é obrigatória';
+      newErrors.description = "Descrição é obrigatória";
     } else if (formData.description.length < 20) {
-      newErrors.description = 'Descrição deve ter pelo menos 20 caracteres';
+      newErrors.description = "Descrição deve ter pelo menos 20 caracteres";
     }
 
     // Validação da URL do Google Maps
     if (!formData.googleMapsUrl.trim()) {
-      newErrors.googleMapsUrl = 'URL do Google Maps é obrigatória';
-    } else if (!/^https:\/\/maps\.google\.com\/.*/.test(formData.googleMapsUrl) && 
-               !/^https:\/\/goo\.gl\/maps\/.*/.test(formData.googleMapsUrl) &&
-               !/^https:\/\/www\.google\.com\/maps\/.*/.test(formData.googleMapsUrl) &&
-               !/^https:\/\/maps\.app\.goo\.gl\/.*/.test(formData.googleMapsUrl)) {
-      newErrors.googleMapsUrl = 'Digite uma URL válida do Google Maps';
+      newErrors.googleMapsUrl = "URL do Google Maps é obrigatória";
+    } else if (
+      !/^https:\/\/maps\.google\.com\/.*/.test(formData.googleMapsUrl) &&
+      !/^https:\/\/goo\.gl\/maps\/.*/.test(formData.googleMapsUrl) &&
+      !/^https:\/\/www\.google\.com\/maps\/.*/.test(formData.googleMapsUrl) &&
+      !/^https:\/\/maps\.app\.goo\.gl\/.*/.test(formData.googleMapsUrl)
+    ) {
+      newErrors.googleMapsUrl = "Digite uma URL válida do Google Maps";
     }
 
     if (formData.specialties.length === 0) {
-      newErrors.specialties = 'Selecione pelo menos uma especialidade';
+      newErrors.specialties = "Selecione pelo menos uma categoria";
     }
 
-    // Validação da disponibilidade
     if (formData.availability.length === 0) {
-      newErrors.availability = 'Pelo menos um horário de disponibilidade é obrigatório';
+      newErrors.availability =
+        "Pelo menos um horário de disponibilidade é obrigatório";
     } else {
-      // Verificar se todos os campos obrigatórios estão preenchidos
-      const incompleteAvailability = formData.availability.find(item => 
-        !item.day || !item.startTime || !item.endTime
+      const incompleteAvailability = formData.availability.find(
+        (item) => !item.day || !item.startTime || !item.endTime,
       );
-      
+
       if (incompleteAvailability) {
-        newErrors.availability = 'Todos os campos de disponibilidade devem ser preenchidos (dia, hora inicial e hora final)';
+        newErrors.availability =
+          "Todos os campos de disponibilidade devem ser preenchidos (dia, hora inicial e hora final)";
+      } else {
+        const invalidTimeFormat = formData.availability.find((item) => {
+          const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+          return (
+            !timeRegex.test(item.startTime) || !timeRegex.test(item.endTime)
+          );
+        });
+
+        if (invalidTimeFormat) {
+          newErrors.availability =
+            "Os horários devem estar no formato HH:MM (ex: 13:00, 09:30)";
+        } else {
+          const invalidTimeOrder = formData.availability.find((item) => {
+            const startTime = item.startTime.split(":").map(Number);
+            const endTime = item.endTime.split(":").map(Number);
+            const startMinutes = startTime[0] * 60 + startTime[1];
+            const endMinutes = endTime[0] * 60 + endTime[1];
+            return endMinutes <= startMinutes;
+          });
+
+          if (invalidTimeOrder) {
+            newErrors.availability =
+              "A hora final deve ser maior que a hora inicial";
+          }
+        }
       }
     }
 
@@ -472,42 +694,42 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Check if user is logged in
     if (!isAuthenticated || !user) {
-      showToast('Você precisa estar logado para editar um consultório.', 'error');
+      showToast("Você precisa estar logado para editar um espaço.", "error");
       return;
     }
 
     // Check if user owns the clinic
     if (consultorio.user_id !== user.id) {
-      showToast('Você não tem permissão para editar este consultório.', 'error');
+      showToast("Você não tem permissão para editar este espaço.", "error");
       return;
     }
-    
+
     if (!validateForm()) {
       return;
     }
 
     setIsLoading(true);
     setError(null);
-    
+
     try {
       // Process price
-      const cleanPrice = formData.price
-        .replace(/[^\d,.-]/g, '')
-        .replace(',', '.');
+      const cleanPrice = formData.priceHour
+        .replace(/[^\d,.-]/g, "")
+        .replace(",", ".");
       const numericPrice = parseFloat(cleanPrice) || 0;
-      
+
       if (numericPrice <= 0) {
-        showToast('Por favor, insira um preço válido maior que zero.', 'error');
+        showToast("Por favor, insira um preço válido maior que zero.", "error");
         setIsLoading(false);
         return;
       }
 
       // Import clinicUtils dynamically
-      const { clinicUtils } = await import('@/services/clinicService');
-      
+      const { clinicUtils } = await import("@/services/clinicService");
+
       const updateData = {
         title: formData.title,
         cep: formData.cep,
@@ -517,44 +739,55 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
         complement: formData.complement,
         city: formData.city,
         state: formData.state,
-        zip_code: formData.cep.replace(/\D/g, ''), // CEP sem formatação
+        zip_code: formData.cep.replace(/\D/g, ""), // CEP sem formatação
         price: numericPrice,
+        price_per_shift: parseOptionalPriceField(formData.priceShift),
+        price_per_day: parseOptionalPriceField(formData.priceDay),
+        price_per_month: parseOptionalPriceField(formData.priceMonth),
         description: formData.description,
+        rules: formData.rules.trim() || null,
+        included_equipment: formData.includedEquipmentItems
+          .map((row) => row.value.trim())
+          .filter((s) => s.length > 0),
         google_maps_url: formData.googleMapsUrl,
-        specialty: formData.specialties.join(', '), // Legacy field
+        specialty: formData.specialties.join(", "), // Legacy field
         specialties: formData.specialties, // New field
         features: formData.features,
+        accessibility_features: formData.accessibilityFeatures,
         availability: formData.availability, // Horários de disponibilidade
         hasappointment: true,
         images: formData.images
           .slice()
           .sort((a, b) => a.order - b.order)
-          .map(img => img.preview),
-        status: consultorio.status // Manter o status atual
+          .map((img) => img.preview),
+        status: consultorio.status, // Manter o status atual
       };
 
       const result = await clinicUtils.updateClinic(consultorio.id, updateData);
-      
+
       if (result.success) {
-        showToast('Consultório atualizado com sucesso!', 'success');
-        router.push('/painel-de-controle');
+        showToast("Espaço atualizado com sucesso!", "success");
+        router.push("/painel-de-controle");
       } else {
-        setError(result.error || 'Erro ao atualizar consultório.');
+        setError(result.error || "Erro ao atualizar espaço.");
       }
     } catch (error) {
-      console.error('Error updating clinic:', error);
-      setError('Erro ao salvar alterações. Tente novamente.');
+      console.error("Error updating clinic:", error);
+      setError("Erro ao salvar alterações. Tente novamente.");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCancel = () => {
-    if (confirm('Tem certeza que deseja cancelar? As alterações não salvas serão perdidas.')) {
-      router.push('/painel-de-controle');
+    if (
+      confirm(
+        "Tem certeza que deseja cancelar? As alterações não salvas serão perdidas.",
+      )
+    ) {
+      router.push("/painel-de-controle");
     }
   };
-
 
   if (authLoading) {
     return (
@@ -568,9 +801,12 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
     <>
       <Head>
         <title>Editar {consultorio.title} - Sublease</title>
-        <meta name="description" content={`Editar consultório ${consultorio.title}`} />
+        <meta
+          name="description"
+          content={`Editar espaço ${consultorio.title}`}
+        />
       </Head>
-      
+
       <div className="min-h-screen bg-gray-50 pt-24">
         <div className="max-w-4xl mx-auto px-4 py-8">
           {/* Back button */}
@@ -581,8 +817,18 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
               onClick={() => router.back()}
               className="flex items-center"
             >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
               Voltar
             </Button>
@@ -590,34 +836,49 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
           {/* Page header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Editar Consultório</h1>
-            <p className="text-gray-600">Atualize as informações do seu consultório</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              Editar espaço
+            </h1>
+            <p className="text-gray-600">
+              Atualize as informações do seu espaço
+            </p>
           </div>
 
           {/* Form */}
           <div className="bg-white rounded-3xl shadow-md p-8">
             <form onSubmit={handleSubmit} className="space-y-8">
-              
               {/* Section: Basic Information */}
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Informações Básicas</h2>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Informações Básicas
+                  </h2>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="md:col-span-2">
                     <Input
-                      label="Título do consultório"
+                      label="Título do espaço"
                       value={formData.title}
-                      onChange={(value) => handleInputChange('title', value)}
-                      placeholder="Ex: Consultório Moderno, 3 salas"
+                      onChange={(value) => handleInputChange("title", value)}
+                      placeholder="Ex: Espaço moderno, 3 salas"
                       required
                     />
                     {errors.title && (
-                      <p className="text-red-500 text-sm mt-1">{errors.title}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.title}
+                      </p>
                     )}
                   </div>
 
                   {/* Seção de Endereço Detalhado */}
                   <div className="md:col-span-2">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">Endereço do Consultório</h3>
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">
+                      Endereço do espaço
+                    </h3>
                   </div>
 
                   <div className="md:col-span-1">
@@ -633,9 +894,25 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                     />
                     {isConsultingCep && (
                       <p className="text-blue-500 text-sm mt-1 flex items-center">
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        <svg
+                          className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-500"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
                         </svg>
                         Consultando CEP...
                       </p>
@@ -653,12 +930,14 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       ref={fieldRefs.street}
                       label="Rua/Avenida"
                       value={formData.street}
-                      onChange={(value) => handleInputChange('street', value)}
+                      onChange={(value) => handleInputChange("street", value)}
                       placeholder="Nome da rua ou avenida"
                       required
                     />
                     {errors.street && (
-                      <p className="text-red-500 text-sm mt-1">{errors.street}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.street}
+                      </p>
                     )}
                   </div>
 
@@ -667,12 +946,14 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       ref={fieldRefs.number}
                       label="Número"
                       value={formData.number}
-                      onChange={(value) => handleInputChange('number', value)}
+                      onChange={(value) => handleInputChange("number", value)}
                       placeholder="123"
                       required
                     />
                     {errors.number && (
-                      <p className="text-red-500 text-sm mt-1">{errors.number}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.number}
+                      </p>
                     )}
                   </div>
 
@@ -681,12 +962,16 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       ref={fieldRefs.neighborhood}
                       label="Bairro"
                       value={formData.neighborhood}
-                      onChange={(value) => handleInputChange('neighborhood', value)}
+                      onChange={(value) =>
+                        handleInputChange("neighborhood", value)
+                      }
                       placeholder="Nome do bairro"
                       required
                     />
                     {errors.neighborhood && (
-                      <p className="text-red-500 text-sm mt-1">{errors.neighborhood}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.neighborhood}
+                      </p>
                     )}
                   </div>
 
@@ -695,11 +980,15 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       ref={fieldRefs.complement}
                       label="Complemento"
                       value={formData.complement}
-                      onChange={(value) => handleInputChange('complement', value)}
+                      onChange={(value) =>
+                        handleInputChange("complement", value)
+                      }
                       placeholder="Sala, andar, etc."
                     />
                     {errors.complement && (
-                      <p className="text-red-500 text-sm mt-1">{errors.complement}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.complement}
+                      </p>
                     )}
                   </div>
 
@@ -708,7 +997,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       ref={fieldRefs.city}
                       label="Cidade"
                       value={formData.city}
-                      onChange={(value) => handleInputChange('city', value)}
+                      onChange={(value) => handleInputChange("city", value)}
                       placeholder="Nome da cidade"
                       required
                     />
@@ -721,43 +1010,129 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                     <Select
                       label="Estado"
                       value={formData.state}
-                      onChange={(value) => handleInputChange('state', value)}
+                      onChange={(value) => handleInputChange("state", value)}
                       placeholder="Selecione o estado"
                       options={stateOptions}
                     />
                     {errors.state && (
-                      <p className="text-red-500 text-sm mt-1">{errors.state}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.state}
+                      </p>
                     )}
                   </div>
 
-
-                  <div>
-                    <Input
-                      label="Preço por hora"
-                      value={formData.price}
-                      onChange={(value) => handleInputChange('price', value)}
-                      placeholder="R$ 0,00"
-                      mask="currency"
-                      required
-                    />
-                    {errors.price && (
-                      <p className="text-red-500 text-sm mt-1">{errors.price}</p>
-                    )}
+                  <div className="md:col-span-2">
+                    <div className="mb-4 flex items-center gap-3">
+                      <span
+                        className="hidden h-10 w-1.5 shrink-0 rounded-full bg-green-600 sm:block"
+                        aria-hidden
+                      />
+                      <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                        Valores
+                      </h2>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <Input
+                          ref={fieldRefs.priceHour}
+                          label="Por hora"
+                          value={formData.priceHour}
+                          onChange={(value) =>
+                            handleInputChange("priceHour", value)
+                          }
+                          placeholder="R$ 0,00"
+                          mask="currency"
+                          required
+                        />
+                        {errors.priceHour && (
+                          <p className="mt-1 text-sm text-red-500">
+                            {errors.priceHour}
+                          </p>
+                        )}
+                        <p className="mt-1 text-sm text-gray-600">
+                          {CLINIC_PRICING_FIELD_HINTS.priceHour}
+                        </p>
+                      </div>
+                      <div>
+                        <Input
+                          ref={fieldRefs.priceShift}
+                          label="Por turno"
+                          value={formData.priceShift}
+                          onChange={(value) =>
+                            handleInputChange("priceShift", value)
+                          }
+                          placeholder="R$ 0,00"
+                          mask="currency"
+                        />
+                        {errors.priceShift && (
+                          <p className="mt-1 text-sm text-red-500">
+                            {errors.priceShift}
+                          </p>
+                        )}
+                        <p className="mt-1 text-sm text-gray-600">
+                          {CLINIC_PRICING_FIELD_HINTS.priceShift}
+                        </p>
+                      </div>
+                      <div>
+                        <Input
+                          ref={fieldRefs.priceDay}
+                          label="Por diária"
+                          value={formData.priceDay}
+                          onChange={(value) =>
+                            handleInputChange("priceDay", value)
+                          }
+                          placeholder="R$ 0,00"
+                          mask="currency"
+                        />
+                        {errors.priceDay && (
+                          <p className="mt-1 text-sm text-red-500">
+                            {errors.priceDay}
+                          </p>
+                        )}
+                        <p className="mt-1 text-sm text-gray-600">
+                          {CLINIC_PRICING_FIELD_HINTS.priceDay}
+                        </p>
+                      </div>
+                      <div>
+                        <Input
+                          ref={fieldRefs.priceMonth}
+                          label="Mensal"
+                          value={formData.priceMonth}
+                          onChange={(value) =>
+                            handleInputChange("priceMonth", value)
+                          }
+                          placeholder="R$ 0,00"
+                          mask="currency"
+                        />
+                        {errors.priceMonth && (
+                          <p className="mt-1 text-sm text-red-500">
+                            {errors.priceMonth}
+                          </p>
+                        )}
+                        <p className="mt-1 text-sm text-gray-600">
+                          {CLINIC_PRICING_FIELD_HINTS.priceMonth}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="md:col-span-2">
                     <Input
                       label="URL do Google Maps"
                       value={formData.googleMapsUrl}
-                      onChange={(value) => handleInputChange('googleMapsUrl', value)}
+                      onChange={(value) =>
+                        handleInputChange("googleMapsUrl", value)
+                      }
                       placeholder="https://maps.google.com/..."
                       required
                     />
                     {errors.googleMapsUrl && (
-                      <p className="text-red-500 text-sm mt-1">{errors.googleMapsUrl}</p>
+                      <p className="text-red-500 text-sm mt-1">
+                        {errors.googleMapsUrl}
+                      </p>
                     )}
                     <p className="text-sm text-gray-500 mt-1">
-                      Cole aqui o link do Google Maps do consultório
+                      Cole aqui o link do Google Maps do espaço
                     </p>
                   </div>
                 </div>
@@ -765,8 +1140,16 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
               {/* Section: Images */}
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Fotos do Consultório</h2>
-                
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Fotos do espaço
+                  </h2>
+                </div>
+
                 {/* Image upload */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-500 mb-2">
@@ -785,11 +1168,25 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                       htmlFor="image-upload"
                       className="cursor-pointer flex flex-col items-center"
                     >
-                      <svg className="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      <svg
+                        className="w-12 h-12 text-gray-400 mb-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
                       </svg>
-                      <p className="text-gray-600 mb-2">Clique para adicionar fotos</p>
-                      <p className="text-sm text-gray-500">PNG, JPG até 10MB cada</p>
+                      <p className="text-gray-600 mb-2">
+                        Clique para adicionar fotos
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        PNG, JPG até 10MB cada
+                      </p>
                     </label>
                   </div>
                 </div>
@@ -797,7 +1194,9 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                 {/* Image preview */}
                 {formData.images.length > 0 && (
                   <div className="space-y-4">
-                    <h3 className="text-lg font-medium text-gray-900">Fotos adicionadas ({formData.images.length})</h3>
+                    <h3 className="text-lg font-medium text-gray-900">
+                      Fotos adicionadas ({formData.images.length})
+                    </h3>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {formData.images
                         .slice()
@@ -811,7 +1210,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                                 className="w-full h-full object-cover"
                               />
                             </div>
-                            
+
                             {/* Image controls */}
                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
                               <div className="flex gap-2">
@@ -819,30 +1218,50 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                                 {index > 0 && (
                                   <button
                                     type="button"
-                                    onClick={() => moveImage(image.id, 'up')}
+                                    onClick={() => moveImage(image.id, "up")}
                                     className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-full transition-colors"
                                     title="Mover para cima"
                                   >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M5 15l7-7 7 7"
+                                      />
                                     </svg>
                                   </button>
                                 )}
-                                
+
                                 {/* Move down button */}
                                 {index < formData.images.length - 1 && (
                                   <button
                                     type="button"
-                                    onClick={() => moveImage(image.id, 'down')}
+                                    onClick={() => moveImage(image.id, "down")}
                                     className="bg-white/20 hover:bg-white/30 text-white p-2 rounded-full transition-colors"
                                     title="Mover para baixo"
                                   >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 9l-7 7-7-7"
+                                      />
                                     </svg>
                                   </button>
                                 )}
-                                
+
                                 {/* Remove button */}
                                 <button
                                   type="button"
@@ -850,13 +1269,23 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                                   className="bg-red-500/80 hover:bg-red-600 text-white p-2 rounded-full transition-colors"
                                   title="Remover foto"
                                 >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M6 18L18 6M6 6l12 12"
+                                    />
                                   </svg>
                                 </button>
                               </div>
                             </div>
-                            
+
                             {/* Order number */}
                             <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded-full">
                               {index + 1}
@@ -864,9 +1293,10 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                           </div>
                         ))}
                     </div>
-                    
+
                     <p className="text-sm text-gray-500">
-                      A primeira foto será a foto principal. Use as setas para reordenar as fotos.
+                      A primeira foto será a foto principal. Use as setas para
+                      reordenar as fotos.
                     </p>
                   </div>
                 )}
@@ -874,21 +1304,33 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
               {/* Section: Description */}
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Descrição</h2>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Descrição
+                  </h2>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-500 mb-2">
                     Descrição detalhada
                   </label>
                   <textarea
                     value={formData.description}
-                    onChange={(e) => handleInputChange('description', e.target.value)}
-                    placeholder="Descreva o consultório, suas características, localização, facilidades..."
+                    onChange={(e) =>
+                      handleInputChange("description", e.target.value)
+                    }
+                    placeholder="Descreva o espaço, suas características, localização, facilidades..."
                     rows={6}
                     className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm hover:border-gray-300 transition-colors duration-200 cursor-pointer text-[#333] placeholder-gray-500"
                     required
                   />
                   {errors.description && (
-                    <p className="text-red-500 text-sm mt-1">{errors.description}</p>
+                    <p className="text-red-500 text-sm mt-1">
+                      {errors.description}
+                    </p>
                   )}
                   <p className="text-gray-500 text-sm mt-1">
                     {formData.description.length}/20 caracteres mínimos
@@ -898,47 +1340,137 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
 
               {/* Section: Features */}
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Comodidades</h2>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Comodidades
+                  </h2>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {(['wifi', 'airConditioning', 'desk', 'bathroom', 'parking', 'microwave', 'refrigerator', 'guardVolume', 'receptionist'] as string[]).map((feature) => (
+                  {ALL_FEATURES.map((feature) => (
                     <Checkbox
-                      key={feature}
-                      label={feature === 'wifi' ? 'WiFi' : 
-                             feature === 'airConditioning' ? 'Ar Condicionado' :
-                             feature === 'desk' ? 'Mesa' :
-                             feature === 'bathroom' ? 'Banheiro' :
-                             feature === 'parking' ? 'Estacionamento Fácil' :
-                             feature === 'microwave' ? 'Microondas' :
-                             feature === 'refrigerator' ? 'Refrigerador' :
-                             feature === 'guardVolume' ? 'Guarde Volume' :
-                             feature === 'receptionist' ? 'Recepcionista' : feature}
-                      checked={formData.features.includes(feature)}
-                      onChange={(checked) => handleFeatureChange(feature, checked)}
+                      key={feature.value}
+                      label={feature.label}
+                      checked={formData.features.includes(feature.value)}
+                      onChange={(checked) =>
+                        handleFeatureChange(feature.value, checked)
+                      }
+                      value={feature.value}
                     />
                   ))}
                 </div>
               </div>
 
+              <div>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Equipamentos inclusos
+                  </h2>
+                </div>
+                <p className="mb-4 text-sm text-gray-600">
+                  Itens que já ficam disponíveis para quem aluga (um por linha).
+                </p>
+                <div className="space-y-3">
+                  {formData.includedEquipmentItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex flex-wrap items-center gap-2 sm:flex-nowrap"
+                    >
+                      <input
+                        type="text"
+                        value={item.value}
+                        onChange={(e) =>
+                          updateIncludedEquipmentItem(item.id, e.target.value)
+                        }
+                        placeholder="Ex.: Maca elétrica, autoclave, kit de luz…"
+                        className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left text-[#333] shadow-sm transition-colors placeholder:text-gray-500 hover:border-gray-300 focus:border-[#2b9af3] focus:outline-none focus:ring-2 focus:ring-[#2b9af3]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeIncludedEquipmentItem(item.id)}
+                        className="shrink-0 rounded-lg border border-gray-200 p-3 text-red-500 transition-colors hover:border-red-200 hover:bg-red-50"
+                        title="Remover item"
+                      >
+                        <svg
+                          className="h-5 w-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 border-[#2b9af3]/50 text-[#1e7ce6] hover:border-[#2b9af3] hover:bg-[#2b9af3]/10"
+                  onClick={addIncludedEquipmentItem}
+                >
+                  <svg
+                    className="mr-2 h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                    />
+                  </svg>
+                  Adicionar equipamento
+                </Button>
+              </div>
+
               {/* Section: Specialties */}
               <div>
-                <h2 className="text-xl font-semibold text-gray-900 mb-6">Especialidades</h2>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Categorias
+                  </h2>
+                </div>
                 <div>
                   <MultiSelect
-                    label="Especialidades médicas"
+                    label="Categorias"
                     value={formData.specialties}
-                    onChange={(values) => setFormData(prev => ({ ...prev, specialties: values }))}
-                    placeholder="Selecione uma ou mais especialidades"
+                    onChange={(values) =>
+                      setFormData((prev) => ({ ...prev, specialties: values }))
+                    }
+                    placeholder="Selecione uma ou mais categorias"
                     options={SPECIALTIES}
                     maxSelections={5}
                   />
                   {errors.specialties && (
-                    <p className="text-red-500 text-sm mt-1">{errors.specialties}</p>
+                    <p className="text-red-500 text-sm mt-1">
+                      {errors.specialties}
+                    </p>
                   )}
-                  
+
                   {/* Contact link */}
                   <div className="mt-3 text-center">
                     <div className="text-sm text-gray-600">
-                      Sua especialidade não está aqui?{' '}
+                      Sua categoria não está aqui?{" "}
                       <Link
                         href="/contato"
                         className="text-[#2b9af3] hover:text-[#1e7ce6] underline transition-colors duration-200 font-medium"
@@ -950,123 +1482,292 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                 </div>
               </div>
 
-              {/* Section: Availability */}
-              <div className="relative z-30">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold text-gray-900">Disponibilidade</h2>
-                  <Button
-                    type="button"
-                    onClick={addAvailability}
-                    variant="outline"
-                    size="sm"
-                  >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                    Adicionar horário
-                  </Button>
+              <div>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className={`hidden h-10 w-1.5 shrink-0 rounded-full sm:block ${ACCESSIBILITY_SECTION_BAR_GRADIENT}`}
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Acessibilidade
+                  </h2>
+                </div>
+                <p className="mb-4 text-sm text-gray-600">
+                  Marque o que o espaço oferece. Apenas opções pré-definidas.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {ALL_ACCESSIBILITY_OPTIONS.map((option) => (
+                    <Checkbox
+                      key={option.value}
+                      label={option.label}
+                      checked={formData.accessibilityFeatures.includes(
+                        option.value,
+                      )}
+                      onChange={(checked) =>
+                        handleAccessibilityChange(option.value, checked)
+                      }
+                      value={option.value}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div ref={fieldRefs.availability} className="relative z-30">
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-[#2b9af3] sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Disponibilidade
+                  </h2>
                 </div>
 
-                {formData.availability.length > 0 ? (
-                  <div className="bg-white border border-gray-200 rounded-lg relative z-20">
-                    <div className="overflow-x-auto overflow-y-visible">
-                      <table className="w-full">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Dia da semana</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Hora inicial</th>
-                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Hora final</th>
-                            <th className="px-4 py-3 text-center text-sm font-medium text-gray-700">Ações</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {formData.availability.map((item) => (
-                            <tr key={item.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3">
-                                <Select
-                                  label=""
-                                  value={item.day}
-                                  onChange={(value: string) => updateAvailability(item.id, 'day', value)}
-                                  placeholder="Selecione o dia"
-                                  options={[
-                                    { value: '', label: 'Selecione o dia' },
-                                    { value: 'segunda', label: 'Segunda-feira' },
-                                    { value: 'terca', label: 'Terça-feira' },
-                                    { value: 'quarta', label: 'Quarta-feira' },
-                                    { value: 'quinta', label: 'Quinta-feira' },
-                                    { value: 'sexta', label: 'Sexta-feira' },
-                                    { value: 'sabado', label: 'Sábado' },
-                                    { value: 'domingo', label: 'Domingo' }
-                                  ]}
-                                  className="mb-0"
+                <div className="relative z-20 overflow-hidden rounded-xl border border-[#2b9af3]/25 bg-gradient-to-br from-[#2b9af3]/[0.07] via-white to-white shadow-sm ring-1 ring-[#2b9af3]/10">
+                  <div className="divide-y divide-[#2b9af3]/12">
+                    {dayOptions.map(({ value, label }) => {
+                      const slots = formData.availability.filter(
+                        (item) => item.day === value,
+                      );
+                      const hasSlots = slots.length > 0;
+                      return (
+                        <div
+                          key={value}
+                          className={`flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:gap-4 sm:pl-3 ${
+                            hasSlots
+                              ? "bg-[#2b9af3]/[0.08] sm:border-l-[3px] sm:border-l-[#2b9af3]"
+                              : ""
+                          }`}
+                        >
+                          <div className="flex shrink-0 items-center justify-between gap-3 sm:w-52">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <span
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2b9af3]/15 text-xs font-bold uppercase tracking-wide text-[#1e7ce6] ring-1 ring-inset ring-[#2b9af3]/25"
+                                aria-hidden
+                              >
+                                {dayShortLabel[value] ?? "—"}
+                              </span>
+                              <span className="truncate text-sm font-semibold text-gray-900">
+                                {label}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => addAvailabilityForDay(value)}
+                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-[#2b9af3]/45 text-[#1e7ce6] transition-colors hover:border-[#2b9af3] hover:bg-[#2b9af3] hover:text-white"
+                              title="Adicionar horário"
+                            >
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                                 />
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  label=""
-                                  type="time"
-                                  value={item.startTime}
-                                  onChange={(value) => updateAvailability(item.id, 'startTime', value)}
-                                  placeholder=""
-                                  className="mb-0"
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <Input
-                                  label=""
-                                  type="time"
-                                  value={item.endTime}
-                                  onChange={(value) => updateAvailability(item.id, 'endTime', value)}
-                                  placeholder=""
-                                  className="mb-0"
-                                />
-                              </td>
-                              <td className="px-4 py-3 text-center">
+                              </svg>
+                            </button>
+                          </div>
+                          <div className="min-h-[2.25rem] flex-1 space-y-3">
+                            {slots.length === 0 && (
+                              <div className="rounded-lg border border-dashed border-[#2b9af3]/40 bg-[#2b9af3]/[0.08] px-3 py-3 sm:px-4">
+                                <p className="mb-2 text-xs font-semibold text-[#0c4a6e]">
+                                  Sugestão: blocos de 1 hora, das 8h às 18h
+                                </p>
+                                <div className="mb-3 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-[#1e7ce6] sm:grid-cols-3 sm:text-xs">
+                                  {HOURLY_BUSINESS_PATTERN_SLOTS.map((slot) => (
+                                    <span key={slot.startTime}>
+                                      {slot.startTime} – {slot.endTime}
+                                    </span>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => applyHourlyPatternForDay(value)}
+                                  className="w-full rounded-lg border border-[#2b9af3]/50 bg-white px-3 py-2 text-center text-xs font-semibold text-[#1e7ce6] transition-colors hover:border-[#2b9af3] hover:bg-[#2b9af3]/10 sm:w-auto sm:px-4"
+                                >
+                                  Aplicar este padrão neste dia
+                                </button>
+                              </div>
+                            )}
+                            {slots.map((item) => (
+                              <div
+                                key={item.id}
+                                className="flex flex-wrap items-end gap-2 sm:gap-3"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-gray-500">
+                                    De
+                                  </span>
+                                  <Input
+                                    label=""
+                                    type="time"
+                                    value={item.startTime}
+                                    onChange={(v) =>
+                                      updateAvailability(
+                                        item.id,
+                                        "startTime",
+                                        v,
+                                      )
+                                    }
+                                    placeholder=""
+                                    className="mb-0 w-[7.25rem]"
+                                  />
+                                  <span className="text-xs text-gray-500">
+                                    Até
+                                  </span>
+                                  <Input
+                                    label=""
+                                    type="time"
+                                    value={item.endTime}
+                                    onChange={(v) =>
+                                      updateAvailability(item.id, "endTime", v)
+                                    }
+                                    placeholder=""
+                                    className="mb-0 w-[7.25rem]"
+                                  />
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => removeAvailability(item.id)}
-                                  className="text-red-500 hover:text-red-700 transition-colors"
+                                  className="mb-1 text-red-500 transition-colors hover:text-red-700"
                                   title="Remover horário"
                                 >
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  <svg
+                                    className="h-5 w-5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
                                   </svg>
                                 </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ) : (
-                  <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-gray-500 mb-4">Nenhum horário de disponibilidade adicionado</p>
-                    <div className="flex justify-center">
-                      <Button
-                        type="button"
-                        onClick={addAvailability}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                        Adicionar primeiro horário
-                      </Button>
+                  {formData.availability.some(
+                    (item) => !dayOptions.some((d) => d.value === item.day),
+                  ) && (
+                    <div className="space-y-4 border-t border-[#2b9af3]/15 bg-[#2b9af3]/[0.06] px-4 py-4">
+                      {formData.availability
+                        .filter(
+                          (item) =>
+                            !dayOptions.some((d) => d.value === item.day),
+                        )
+                        .map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex flex-wrap items-end gap-2 sm:gap-3"
+                          >
+                            <Select
+                              label=""
+                              value={item.day}
+                              onChange={(v) =>
+                                updateAvailability(item.id, "day", v)
+                              }
+                              placeholder="Selecione o dia"
+                              options={[
+                                { value: "", label: "Selecione o dia" },
+                                ...dayOptions,
+                              ]}
+                              className="mb-0 min-w-[11rem]"
+                            />
+                            <span className="text-xs text-gray-500">De</span>
+                            <Input
+                              label=""
+                              type="time"
+                              value={item.startTime}
+                              onChange={(v) =>
+                                updateAvailability(item.id, "startTime", v)
+                              }
+                              placeholder=""
+                              className="mb-0 w-[7.25rem]"
+                            />
+                            <span className="text-xs text-gray-500">Até</span>
+                            <Input
+                              label=""
+                              type="time"
+                              value={item.endTime}
+                              onChange={(v) =>
+                                updateAvailability(item.id, "endTime", v)
+                              }
+                              placeholder=""
+                              className="mb-0 w-[7.25rem]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeAvailability(item.id)}
+                              className="mb-1 text-red-500 transition-colors hover:text-red-700"
+                              title="Remover horário"
+                            >
+                              <svg
+                                className="h-5 w-5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {errors.availability && (
-                  <p className="text-red-500 text-sm mt-2">{errors.availability}</p>
+                  <p className="mt-2 text-sm text-red-500">
+                    {errors.availability}
+                  </p>
                 )}
 
-                <p className="text-sm text-gray-500 mt-4">
-                  Adicione os horários de disponibilidade do consultório. Você pode adicionar múltiplos horários para o mesmo dia.
+                <p className="mt-4 text-sm text-gray-500">
+                  Adicione os horários de disponibilidade do espaço. Você pode
+                  adicionar múltiplos horários para o mesmo dia.
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-6 flex items-center gap-3">
+                  <span
+                    className="hidden h-10 w-1.5 shrink-0 rounded-full bg-red-600 sm:block"
+                    aria-hidden
+                  />
+                  <h2 className="text-xl font-semibold text-[#0c4a6e]">
+                    Regras do espaço
+                  </h2>
+                </div>
+                <label className="block text-sm font-medium text-gray-500 mb-2">
+                  Orientações para quem aluga (opcional)
+                </label>
+                <textarea
+                  value={formData.rules}
+                  onChange={(e) => handleInputChange("rules", e.target.value)}
+                  placeholder="Ex.: chegada com alguns minutos de antecedência; deixar o ambiente como encontrou; uso de equipamentos só com combinação prévia; limpeza e descarte de resíduos; nível de som permitido."
+                  rows={5}
+                  className="w-full bg-white border border-gray-200 rounded-lg px-4 py-3 text-left focus:outline-none focus:ring-2 focus:ring-[#2b9af3] focus:border-[#2b9af3] shadow-sm hover:border-gray-300 transition-colors duration-200 cursor-pointer text-[#333] placeholder-gray-500"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Inclua o que fizer sentido: horários de uso, limpeza,
+                  equipamentos, convivência e restrições.
                 </p>
               </div>
 
@@ -1096,7 +1797,7 @@ const EditClinicPage = ({ consultorio }: EditClinicPageProps) => {
                   className="w-full sm:w-auto"
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Salvando...' : 'Salvar Alterações'}
+                  {isLoading ? "Salvando..." : "Salvar Alterações"}
                 </Button>
               </div>
             </form>
@@ -1125,6 +1826,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     state: string;
     zip_code?: string | null;
     price: number | string;
+    price_per_shift?: number | string | null;
+    price_per_day?: number | string | null;
+    price_per_month?: number | string | null;
     specialty?: string | null;
     specialties?: string[] | null;
     images?: string[] | null;
@@ -1138,40 +1842,54 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     rating?: number | string | null;
     created_at?: string | null;
     updated_at?: string | null;
+    rules?: string | null;
+    included_equipment?: string[] | null;
+    accessibility_features?: string[] | null;
   };
 
   const parseNumber = (value: unknown): number => {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const normalized = value.replace(',', '.');
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const normalized = value.replace(",", ".");
       const parsed = parseFloat(normalized);
       return Number.isFinite(parsed) ? parsed : 0;
     }
     return 0;
   };
 
+  const parseOptionalClinicPrice = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    const n = parseNumber(value);
+    return n > 0 ? n : null;
+  };
+
   const normalizeStringArray = (value: unknown): string[] => {
     if (!Array.isArray(value)) return [];
-    return value.filter((item): item is string => typeof item === 'string');
+    return value.filter((item): item is string => typeof item === "string");
   };
 
   const normalizeAvailability = (
-    value: unknown
-  ): Consultorio['availability'] => {
+    value: unknown,
+  ): Consultorio["availability"] => {
     if (!Array.isArray(value)) return undefined;
 
     const normalized = value
       .map((item) => {
-        if (!item || typeof item !== 'object') return null;
-        const obj = item as { id?: string; day?: string; startTime?: string; endTime?: string };
+        if (!item || typeof item !== "object") return null;
+        const obj = item as {
+          id?: string;
+          day?: string;
+          startTime?: string;
+          endTime?: string;
+        };
 
         if (!obj.day || !obj.startTime || !obj.endTime) return null;
 
         return {
-          id: obj.id || '',
+          id: obj.id || "",
           day: obj.day,
           startTime: obj.startTime,
-          endTime: obj.endTime
+          endTime: obj.endTime,
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
@@ -1183,9 +1901,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     const supabase = createAnonSupabaseClient();
 
     const { data, error } = await supabase
-      .from('clinics')
-      .select('*')
-      .eq('id', id)
+      .from("clinics")
+      .select("*")
+      .eq("id", id)
       .single();
 
     if (error || !data) {
@@ -1197,11 +1915,17 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
     const images = normalizeStringArray(row.images);
     const features = normalizeStringArray(row.features);
     const specialties = normalizeStringArray(row.specialties);
+    const included_equipment = normalizeStringArray(row.included_equipment)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const accessibility_features = normalizeAccessibilityFeatures(
+      row.accessibility_features,
+    );
 
     const availability = normalizeAvailability(row.availability) || [];
 
     const hasappointment =
-      typeof row.hasappointment === 'boolean' ? row.hasappointment : true;
+      typeof row.hasappointment === "boolean" ? row.hasappointment : true;
 
     const nowIso = new Date().toISOString();
     const consultorio = {
@@ -1209,6 +1933,9 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       user_id: row.user_id,
       title: row.title,
       description: row.description,
+      rules: row.rules ?? null,
+      included_equipment,
+      accessibility_features,
       cep: row.cep ?? null,
       street: row.street ?? null,
       number: row.number ?? null,
@@ -1218,7 +1945,10 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       state: row.state,
       zip_code: row.zip_code ?? null,
       price: parseNumber(row.price),
-      specialty: row.specialty || '',
+      price_per_shift: parseOptionalClinicPrice(row.price_per_shift),
+      price_per_day: parseOptionalClinicPrice(row.price_per_day),
+      price_per_month: parseOptionalClinicPrice(row.price_per_month),
+      specialty: row.specialty || "",
       specialties,
       images,
       features,
@@ -1226,17 +1956,17 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
       availability,
       hasappointment,
       hasAppointment: hasappointment,
-      status: (row.status as Consultorio['status']) || 'pending',
-      views: typeof row.views === 'number' ? row.views : 0,
-      bookings: typeof row.bookings === 'number' ? row.bookings : 0,
+      status: (row.status as Consultorio["status"]) || "pending",
+      views: typeof row.views === "number" ? row.views : 0,
+      bookings: typeof row.bookings === "number" ? row.bookings : 0,
       created_at: row.created_at || nowIso,
-      updated_at: row.updated_at || nowIso
+      updated_at: row.updated_at || nowIso,
     } as unknown as Consultorio;
 
     return {
       props: {
-        consultorio
-      }
+        consultorio,
+      },
     };
   } catch {
     return { notFound: true };

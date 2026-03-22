@@ -9,36 +9,69 @@ interface SelectOption {
 
 interface SelectProps {
   label: string;
-  options: SelectOption[];
+  options: readonly SelectOption[];
   value?: string;
   onChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  filterable?: boolean;
+  filterPlaceholder?: string;
 }
 
-const Select: React.FC<SelectProps> = ({ 
-  label, 
-  options, 
-  value, 
-  onChange, 
+const Select: React.FC<SelectProps> = ({
+  label,
+  options,
+  value,
+  onChange,
   placeholder = "Selecione uma opção",
   className = "",
-  disabled = false
+  disabled = false,
+  filterable = false,
+  filterPlaceholder = "Filtrar opções...",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedValue, setSelectedValue] = useState(value || '');
-  const [dropdownPosition, setDropdownPosition] = useState<'below' | 'above'>('below');
+  const [selectedValue, setSelectedValue] = useState(value || "");
+  const [filterQuery, setFilterQuery] = useState("");
+  const [dropdownPosition, setDropdownPosition] = useState<"below" | "above">(
+    "below",
+  );
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const [isInTable, setIsInTable] = useState(false);
   const selectRef = useRef<HTMLDivElement>(null);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
-  // Atualizar selectedValue quando o prop value muda
   useEffect(() => {
-    setSelectedValue(value || '');
+    setSelectedValue(value || "");
   }, [value]);
 
-  const selectedOption = options.find(option => option.value === selectedValue);
+  useEffect(() => {
+    if (!isOpen) {
+      setFilterQuery("");
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && filterable) {
+      const id = window.requestAnimationFrame(() => {
+        filterInputRef.current?.focus();
+      });
+      return () => window.cancelAnimationFrame(id);
+    }
+  }, [isOpen, filterable]);
+
+  const selectedOption = options.find((option) => option.value === selectedValue);
+
+  const q = filterQuery.trim().toLowerCase();
+  const visibleOptions =
+    filterable && q.length > 0
+      ? options.filter(
+          (o) =>
+            o.value === "" ||
+            o.label.toLowerCase().includes(q) ||
+            o.value.toLowerCase().includes(q),
+        )
+      : options;
 
   // Detecta se está dentro de uma tabela e ajusta posicionamento
   useEffect(() => {
@@ -167,59 +200,109 @@ const Select: React.FC<SelectProps> = ({
         {isOpen && (
           <>
             {isInTable ? (
-              // Portal para tabelas
               createPortal(
-                <div 
-                  style={{...dropdownStyle, pointerEvents: 'auto', zIndex: 1000000}}
-                  className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto"
+                <div
+                  style={{
+                    ...dropdownStyle,
+                    pointerEvents: "auto",
+                    zIndex: 1000000,
+                  }}
+                  className="flex max-h-60 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg"
                   onMouseDown={(e) => e.preventDefault()}
                 >
-                  {options.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelect(option.value);
-                      }}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors duration-200 cursor-pointer flex flex-row gap-2 items-center ${
-                        selectedValue === option.value ? 'bg-[#2b9af3]/10 text-[#2b9af3]' : 'text-gray-900'
-                      }`}
-                      style={{ pointerEvents: 'auto', zIndex: 1000000 }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                  {filterable ? (
+                    <div className="shrink-0 border-b border-gray-200 bg-white p-2">
+                      <input
+                        ref={filterInputRef}
+                        type="search"
+                        autoComplete="off"
+                        value={filterQuery}
+                        onChange={(e) => setFilterQuery(e.target.value)}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        placeholder={filterPlaceholder}
+                        className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#2b9af3] focus:outline-none focus:ring-2 focus:ring-[#2b9af3]/30"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    {visibleOptions.length === 0 ? (
+                      <p className="px-4 py-3 text-sm text-gray-500">
+                        Nenhuma opção encontrada
+                      </p>
+                    ) : (
+                      visibleOptions.map((option) => (
+                        <button
+                          key={option.value === "" ? "__all" : option.value}
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleSelect(option.value);
+                          }}
+                          className={`flex w-full cursor-pointer flex-row items-center gap-2 px-4 py-3 text-left transition-colors duration-200 hover:bg-gray-50 ${
+                            selectedValue === option.value
+                              ? "bg-[#2b9af3]/10 text-[#2b9af3]"
+                              : "text-gray-900"
+                          }`}
+                          style={{ pointerEvents: "auto", zIndex: 1000000 }}
+                        >
+                          {option.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
                 </div>,
-                document.body
+                document.body,
               )
             ) : (
-              // Dropdown normal para outros contextos
-              <div 
-                className={`absolute w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto ${
-                  dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'
+              <div
+                className={`absolute flex w-full max-h-60 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg ${
+                  dropdownPosition === "above" ? "bottom-full mb-1" : "top-full mt-1"
                 }`}
-                style={{ zIndex: 1000000, pointerEvents: 'auto' }}
+                style={{ zIndex: 1000000, pointerEvents: "auto" }}
                 onMouseDown={(e) => e.preventDefault()}
               >
-                {options.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleSelect(option.value);
-                    }}
-                    className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors duration-200 cursor-pointer flex flex-row gap-2 items-center ${
-                      selectedValue === option.value ? 'bg-[#2b9af3]/10 text-[#2b9af3]' : 'text-gray-900'
-                    }`}
-                    style={{ pointerEvents: 'auto', zIndex: 1000000 }}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {filterable ? (
+                  <div className="shrink-0 border-b border-gray-200 bg-white p-2">
+                    <input
+                      ref={filterInputRef}
+                      type="search"
+                      autoComplete="off"
+                      value={filterQuery}
+                      onChange={(e) => setFilterQuery(e.target.value)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      placeholder={filterPlaceholder}
+                      className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#2b9af3] focus:outline-none focus:ring-2 focus:ring-[#2b9af3]/30"
+                    />
+                  </div>
+                ) : null}
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {visibleOptions.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-gray-500">
+                      Nenhuma opção encontrada
+                    </p>
+                  ) : (
+                    visibleOptions.map((option) => (
+                      <button
+                        key={option.value === "" ? "__all" : option.value}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSelect(option.value);
+                        }}
+                        className={`flex w-full cursor-pointer flex-row items-center gap-2 px-4 py-3 text-left transition-colors duration-200 hover:bg-gray-50 ${
+                          selectedValue === option.value
+                            ? "bg-[#2b9af3]/10 text-[#2b9af3]"
+                            : "text-gray-900"
+                        }`}
+                        style={{ pointerEvents: "auto", zIndex: 1000000 }}
+                      >
+                        {option.label}
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </>

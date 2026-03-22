@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import Select from './Select';
-import Button from './Button';
-import Icon from './Icon';
-import Input from './Input';
-import { useSpecialties } from '@/hooks/useSpecialties';
+import React, { useState, useEffect, useMemo } from "react";
+import Select from "./Select";
+import Button from "./Button";
+import Icon from "./Icon";
+import Input from "./Input";
+import { SPECIALTIES } from "@/constants/specialties";
 
 interface Consultorio {
   id?: string;
@@ -20,7 +20,7 @@ interface Consultorio {
   specialties: string[];
   images: string[];
   features: string[];
-  status?: 'pending' | 'active' | 'inactive';
+  status?: "pending" | "active" | "inactive";
   views?: number;
   bookings?: number;
   created_at?: string;
@@ -32,27 +32,24 @@ interface Consultorio {
 const Hero: React.FC = () => {
   const [consultorios, setConsultorios] = useState<Consultorio[]>([]);
   const [, setIsLoading] = useState(true);
-  
-  // Hook para especialidades
-  const { getSpecialtyLabel } = useSpecialties();
 
   // Carregar consultórios ativos do banco de dados
   useEffect(() => {
     const loadActiveClinics = async () => {
       try {
         setIsLoading(true);
-        
-        const { clinicUtils } = await import('@/services/clinicService');
-        
+
+        const { clinicUtils } = await import("@/services/clinicService");
+
         const result = await clinicUtils.getActiveClinics();
-        
+
         if (result.success && result.clinics) {
           setConsultorios(result.clinics);
         } else {
           setConsultorios([]);
         }
       } catch (error) {
-        console.error('Erro ao carregar consultórios:', error);
+        console.error("Erro ao carregar consultórios:", error);
         setConsultorios([]);
       } finally {
         setIsLoading(false);
@@ -64,14 +61,8 @@ const Hero: React.FC = () => {
 
   // Filtros - extrair dados únicos dos consultórios
   const regions = useMemo(() => {
-    const uniqueRegions = [...new Set(consultorios.map(c => c.city))];
+    const uniqueRegions = [...new Set(consultorios.map((c) => c.city))];
     return uniqueRegions.sort();
-  }, [consultorios]);
-
-  const specialties = useMemo(() => {
-    const allSpecialties = consultorios.flatMap(c => c.specialties || []);
-    const uniqueSpecialties = [...new Set(allSpecialties)];
-    return uniqueSpecialties.sort();
   }, [consultorios]);
 
   return (
@@ -80,14 +71,16 @@ const Hero: React.FC = () => {
       <div className="relative w-full mx-auto rounded-[20px] sm:rounded-[40px] lg:rounded-[70px] overflow-hidden min-h-[400px] sm:min-h-[500px] lg:min-h-[700px] bg-[url('/bg.jpg')] bg-cover bg-no-repeat p-4 lg:p-14">
         {/* Gradiente do preto para transparente */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/10 to-transparent"></div>
-        
+
         {/* Conteúdo do Hero */}
         <div className="relative z-10 w-full flex flex-col gap-4">
           <h1 className="hidden lg:block text-3xl md:text-5xl font-regular text-white">
-            Descubra novos consultórios<br /> em um único lugar
+            Descubra novos espaços
+            <br /> em um único lugar
           </h1>
           <p className="hidden lg:block text-lg md:text-xl font-regular text-white">
-            Encontre os melhores consultórios de forma rápida e fácil.<br /> Em poucos cliques.
+            Encontre os melhores espaços de forma rápida e fácil.
+            <br /> Em poucos cliques.
           </p>
         </div>
       </div>
@@ -95,20 +88,27 @@ const Hero: React.FC = () => {
         <Select
           label="Localização"
           options={[
-            { value: '', label: 'Todas as cidades' },
-            ...regions.map(region => ({ value: region, label: region }))
+            { value: "", label: "Todas as cidades" },
+            ...regions.map((region) => ({ value: region, label: region })),
           ]}
           placeholder="Selecione uma cidade"
           className="w-full lg:flex-1"
+          filterable
+          filterPlaceholder="Filtrar cidade..."
         />
         <Select
-          label="Especialidade"
+          label="Categoria"
           options={[
-            { value: '', label: 'Todas as especialidades' },
-            ...specialties.map(specialty => ({ value: specialty, label: getSpecialtyLabel(specialty) }))
+            { value: "", label: "Todas as categorias" },
+            ...SPECIALTIES.map((s) => ({
+              value: s.value,
+              label: s.label,
+            })),
           ]}
-          placeholder="Selecione uma especialidade"
+          placeholder="Selecione uma categoria"
           className="w-full lg:flex-1"
+          filterable
+          filterPlaceholder="Filtrar categoria..."
         />
         <Input
           label="Valor hora"
@@ -117,8 +117,8 @@ const Hero: React.FC = () => {
           className="w-full lg:flex-1"
         />
         <div className="w-full lg:w-auto">
-          <Button 
-            onClick={() => console.log('Pesquisar consultórios')}
+          <Button
+            onClick={() => console.log("Pesquisar espaços")}
             variant="primary"
             size="md"
             className="w-full lg:w-auto h-12"

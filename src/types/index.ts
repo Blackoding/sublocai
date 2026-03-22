@@ -1,23 +1,60 @@
-export type SublocationPlus = 'wifi' | 'airConditioning' | 'desk' | 'bathroom' | 'parking' | 'microwave' | 'refrigerator' | 'guardVolume' | 'receptionist';
+export type SublocationPlus =
+  | "wifi"
+  | "airConditioning"
+  | "desk"
+  | "bathroom"
+  | "parking"
+  | "microwave"
+  | "refrigerator"
+  | "guardVolume"
+  | "receptionist"
+  | "treatmentBed"
+  | "waitingArea"
+  | "projectorTv"
+  | "whiteboard"
+  | "printer"
+  | "professionalLighting"
+  | "soundTreated"
+  | "foodPrepSink"
+  | "changingShower"
+  | "accessibleRamp"
+  | "ventilationSystem"
+  | "petWashArea"
+  | "outdoorSpace"
+  | "coffeeStation"
+  | "meetingTable"
+  | "securityCameras"
+  | "trainingEquipment";
+
+export type ClinicAccessibility =
+  | "stepFreeEntry"
+  | "wheelchairRamp"
+  | "elevator"
+  | "adaptedRestroom"
+  | "supportHandrails"
+  | "accessibleParking"
+  | "wideCirculation"
+  | "tactileVisualSignage"
+  | "brailleAudioInfo";
 
 export interface User {
   id: string;
   email: string;
-  userType: 'professional' | 'company';
+  userType: "professional" | "company";
   phone: string;
   avatar?: string;
   createdAt: string;
   updatedAt: string;
 
-  planEmpresa?: 'free' | 'basic' | 'pro';
-  
+  planEmpresa?: "free" | "basic" | "pro";
+
   // Campos específicos para profissionais
   fullName?: string;
   cpf?: string;
   birthDate?: string;
   specialty?: string;
   registrationCode?: string;
-  
+
   // Campos específicos para empresas
   companyName?: string;
   tradeName?: string;
@@ -30,17 +67,17 @@ export interface SignUpData {
   email: string;
   phone: string;
   password: string;
-  userType: 'professional' | 'company';
+  userType: "professional" | "company";
 
-  planEmpresa?: 'free' | 'basic' | 'pro';
-  
+  planEmpresa?: "free" | "basic" | "pro";
+
   // Para profissionais
   fullName?: string;
   cpf?: string;
   birthDate?: string;
   specialty?: string;
   registrationCode?: string;
-  
+
   // Para empresas
   companyName?: string;
   tradeName?: string;
@@ -56,19 +93,19 @@ export interface SignInData {
 
 // Função utilitária para obter o nome correto do usuário baseado no tipo
 export const getUserDisplayName = (user: User): string => {
-  if (user.userType === 'company') {
-    return user.tradeName || user.companyName || 'Empresa';
+  if (user.userType === "company") {
+    return user.tradeName || user.companyName || "Empresa";
   }
-  return user.fullName || 'Usuário';
+  return user.fullName || "Usuário";
 };
 
 // Função utilitária para obter as iniciais do usuário baseado no tipo
 export const getUserInitials = (user: User): string => {
   const displayName = getUserDisplayName(user);
   return displayName
-    .split(' ')
-    .map(n => n.charAt(0))
-    .join('')
+    .split(" ")
+    .map((n) => n.charAt(0))
+    .join("")
     .toUpperCase()
     .slice(0, 2);
 };
@@ -98,14 +135,14 @@ export interface CommentFormData {
 export interface ProfileUpdateData {
   phone: string;
   avatar?: string;
-  
+
   // Campos específicos para profissionais
   fullName?: string;
   cpf?: string;
   birthDate?: string;
   specialty?: string;
   registrationCode?: string;
-  
+
   // Campos específicos para empresas
   companyName?: string;
   tradeName?: string;
@@ -127,15 +164,26 @@ export interface Clinic {
   state: string;
   zip_code?: string; // Campo legado - pode ser removido no futuro
   price: number;
+  price_per_shift?: number | null;
+  price_per_day?: number | null;
+  price_per_month?: number | null;
   description?: string;
+  rules?: string | null;
+  included_equipment?: string[];
   specialty: string; // Campo legado - manter para compatibilidade
   specialties: string[]; // Novo campo para múltiplas especialidades
   images: string[];
   features: string[];
+  accessibility_features?: ClinicAccessibility[];
   google_maps_url?: string; // URL do Google Maps
-  availability?: { id: string; day: string; startTime: string; endTime: string }[]; // Horários de disponibilidade
+  availability?: {
+    id: string;
+    day: string;
+    startTime: string;
+    endTime: string;
+  }[]; // Horários de disponibilidade
   hasAppointment?: boolean; // Se true, permite agendamento na plataforma; se false, redireciona para WhatsApp
-  status?: 'pending' | 'active' | 'inactive';
+  status?: "pending" | "active" | "inactive";
   views?: number;
   bookings?: number;
   rating?: number; // Média de rating dos comentários
@@ -143,7 +191,7 @@ export interface Clinic {
   updated_at?: string;
   user_id: string;
   // Campos adicionais para compatibilidade com a UI
-  stamp?: 'new' | 'hot';
+  stamp?: "new" | "hot";
   plus?: SublocationPlus[];
 }
 
@@ -153,7 +201,7 @@ export interface Appointment {
   user_id: string;
   date: string; // YYYY-MM-DD
   time: string; // HH:MM - horário selecionado pelo usuário
-  status: 'pending' | 'confirmed' | 'cancelled' | 'completed';
+  status: "pending" | "confirmed" | "cancelled" | "completed";
   notes?: string;
   value: number; // Valor do agendamento
   created_at: string;
@@ -165,7 +213,7 @@ export interface Appointment {
   users?: {
     id: string;
     email: string;
-    userType: 'professional' | 'company';
+    userType: "professional" | "company";
     phone: string;
     fullName?: string;
     companyName?: string;
@@ -176,9 +224,17 @@ export interface Appointment {
 export interface AppointmentFilters {
   date_from?: string;
   date_to?: string;
-  period?: 'morning' | 'afternoon' | 'evening' | 'all';
-  day_of_week?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'all';
-  status?: 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'all';
+  period?: "morning" | "afternoon" | "evening" | "all";
+  day_of_week?:
+    | "monday"
+    | "tuesday"
+    | "wednesday"
+    | "thursday"
+    | "friday"
+    | "saturday"
+    | "sunday"
+    | "all";
+  status?: "pending" | "confirmed" | "cancelled" | "completed" | "all";
   clinic_id?: string;
 }
 
@@ -198,10 +254,10 @@ export interface ChatThread {
   clinicTitle: string;
   counterpartId: string;
   counterpartName: string;
-  counterpartTypeLabel: 'Profissional' | 'Empresa';
+  counterpartTypeLabel: "Profissional" | "Empresa";
   appointmentDate: string;
   appointmentTime: string;
-  appointmentStatus: Appointment['status'];
+  appointmentStatus: Appointment["status"];
   latestMessage?: {
     content: string;
     createdAt: string;

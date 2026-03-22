@@ -1,8 +1,50 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Modal from '@/components/Modal';
 import Button from '@/components/Button';
 import Input from '@/components/Input';
 import Checkbox from '@/components/Checkbox';
+import {
+  CLINIC_BILLING_UI,
+  buildConsultorioHourlySlots,
+  formatPriceBrl,
+  getClinicWeekdayKeyFromIsoDate,
+  quoteAppointmentBooking,
+  type AppointmentBookingQuote,
+  type AppointmentBookingQuoteTail,
+} from '@/constants/clinicPricing';
+
+const appointmentTailFooterLines = (tail: AppointmentBookingQuoteTail) =>
+  tail.mix ? (
+    <>
+      <p className="text-xs text-gray-500">
+        R$ {formatPriceBrl(tail.mix.shiftUnitPrice)} por turno (4 h) ×{' '}
+        {tail.mix.shiftTurnos}{' '}
+        {tail.mix.shiftTurnos === 1 ? 'turno' : 'turnos'}
+      </p>
+      <p className="text-xs text-gray-500">
+        R$ {formatPriceBrl(tail.mix.hourUnitPrice)} por hora ×{' '}
+        {tail.mix.remainderHours}{' '}
+        {tail.mix.remainderHours === 1 ? 'horário' : 'horários'}
+      </p>
+    </>
+  ) : tail.billingUnit === 'shift' ? (
+    <p className="text-xs text-gray-500">
+      R$ {formatPriceBrl(tail.unitPrice)} por turno (4 h) × {tail.billableCount}{' '}
+      {tail.billableCount === 1 ? 'turno' : 'turnos'}
+    </p>
+  ) : (
+    <p className="text-xs text-gray-500">
+      R$ {formatPriceBrl(tail.unitPrice)} por hora × {tail.billableCount}{' '}
+      {tail.billableCount === 1 ? 'horário' : 'horários'}
+    </p>
+  );
+
+export interface AppointmentFormData {
+  date: string;
+  selectionsByDate: Record<string, string[]>;
+  notes?: string;
+  acceptTerms: boolean;
+}
 
 interface AppointmentModalProps {
   isOpen: boolean;
@@ -10,16 +52,18 @@ interface AppointmentModalProps {
   onSubmit: (appointmentData: AppointmentFormData) => Promise<void>;
   clinicTitle: string;
   clinicPrice: number;
+  pricePerShift?: number | null;
+  pricePerDay?: number | null;
   clinicAvailability?: { id: string; day: string; startTime: string; endTime: string }[];
   existingAppointments?: { date: string; time: string; status: string }[];
 }
 
-interface AppointmentFormData {
-  date: string;
-  selectedTimes: string[];
-  notes?: string;
-  acceptTerms: boolean;
-}
+type ModalAggregateQuote = {
+  total: number;
+  weekCount: number;
+  primaryQuote: AppointmentBookingQuote;
+  showDetailFooter: boolean;
+};
 
 const AppointmentModal: React.FC<AppointmentModalProps> = ({
   isOpen,
@@ -27,6 +71,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   onSubmit,
   clinicTitle,
   clinicPrice,
+  pricePerShift = null,
+  pricePerDay = null,
   clinicAvailability = [],
   existingAppointments = []
 }) => {
@@ -37,12 +83,124 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   );
   const [formData, setFormData] = useState<AppointmentFormData>({
     date: '',
-    selectedTimes: [],
+    selectionsByDate: {},
     notes: '',
     acceptTerms: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableTimeSlots, setAvailableTimeSlots] = useState<{ value: string; label: string; disabled: boolean }[]>([]);
+
+  const activeSelectedTimes =
+    formData.date && formData.selectionsByDate[formData.date]
+      ? formData.selectionsByDate[formData.date]
+      : [];
+
+  const anchorWeekdayKey = useMemo(() => {
+    const iso = Object.keys(formData.selectionsByDate).find(
+      (k) => (formData.selectionsByDate[k]?.length ?? 0) > 0,
+    );
+    return iso ? getClinicWeekdayKeyFromIsoDate(iso) : null;
+  }, [formData.selectionsByDate]);
+
+  const hasAnySlotSelection = useMemo(
+    () =>
+      Object.values(formData.selectionsByDate).some((times) => times.length > 0),
+    [formData.selectionsByDate],
+  );
+
+  const aggregateQuote = useMemo((): ModalAggregateQuote | null => {
+    const entries = Object.entries(formData.selectionsByDate)
+      .filter(([, t]) => t.length > 0)
+      .sort(([a], [b]) => a.localeCompare(b));
+    if (entries.length === 0) return null;
+
+    let total = 0;
+    const perDateQuotes: AppointmentBookingQuote[] = [];
+    for (const [dateIso, times] of entries) {
+      const slots = buildConsultorioHourlySlots(
+        dateIso,
+        clinicAvailability,
+        existingAppointments,
+      );
+      const q = quoteAppointmentBooking(times, slots, {
+        priceHour: clinicPrice,
+        pricePerShift,
+        pricePerDay,
+      });
+      if (!q || q.total <= 0) return null;
+      total += q.total;
+      perDateQuotes.push(q);
+    }
+    const first = perDateQuotes[0];
+    if (!first) return null;
+    const weekCount = perDateQuotes.length;
+    let primaryQuote: AppointmentBookingQuote = first;
+    if (weekCount > 1) {
+      const allPureDayOne =
+        perDateQuotes.every(
+          (q) =>
+            q.billingUnit === 'day' &&
+            q.billableCount === 1 &&
+            !q.diariaLead &&
+            !q.tailAfterDiaria &&
+            !q.mix,
+        ) && perDateQuotes.every((q) => q.unitPrice === first.unitPrice);
+      if (allPureDayOne) {
+        primaryQuote = {
+          billingUnit: 'day',
+          billableCount: weekCount,
+          unitPrice: first.unitPrice,
+          total,
+        };
+      } else if (first.mix) {
+        const allSameMix = perDateQuotes.every(
+          (q) =>
+            q.mix &&
+            q.mix.shiftTurnos === first.mix!.shiftTurnos &&
+            q.mix.remainderHours === first.mix!.remainderHours &&
+            q.mix.shiftUnitPrice === first.mix!.shiftUnitPrice &&
+            q.mix.hourUnitPrice === first.mix!.hourUnitPrice &&
+            q.billingUnit === first.billingUnit,
+        );
+        if (allSameMix) {
+          primaryQuote = {
+            billingUnit: first.billingUnit,
+            billableCount: first.billableCount,
+            unitPrice: first.unitPrice,
+            total,
+            mix: {
+              shiftTurnos: first.mix.shiftTurnos * weekCount,
+              remainderHours: first.mix.remainderHours * weekCount,
+              shiftUnitPrice: first.mix.shiftUnitPrice,
+              hourUnitPrice: first.mix.hourUnitPrice,
+            },
+          };
+        }
+      }
+    }
+    return {
+      total,
+      weekCount,
+      primaryQuote,
+      showDetailFooter:
+        weekCount === 1 || Math.abs(primaryQuote.total - total) < 0.005,
+    };
+  }, [
+    formData.selectionsByDate,
+    clinicAvailability,
+    existingAppointments,
+    clinicPrice,
+    pricePerShift,
+    pricePerDay,
+  ]);
+
+  const bookingQuote = aggregateQuote?.primaryQuote ?? null;
+
+  const billingCopy = useMemo(() => {
+    const unit = bookingQuote?.billingUnit ?? 'hour';
+    return CLINIC_BILLING_UI[unit];
+  }, [bookingQuote]);
+
   const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const monthNames = [
     'Janeiro',
@@ -97,6 +255,13 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     if (isOpen) {
       const now = new Date();
       setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+      setFormData({
+        date: '',
+        selectionsByDate: {},
+        notes: '',
+        acceptTerms: false,
+      });
+      setAvailableTimeSlots([]);
     }
   }, [isOpen]);
 
@@ -106,12 +271,11 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     
     try {
       await onSubmit(formData);
-      // Reset form
       setFormData({
         date: '',
-        selectedTimes: [],
+        selectionsByDate: {},
         notes: '',
-        acceptTerms: false
+        acceptTerms: false,
       });
       onClose();
     } catch (error) {
@@ -129,21 +293,21 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   };
 
   const handleTimeSelection = (time: string, checked: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedTimes: checked 
-        ? [...prev.selectedTimes, time]
-        : prev.selectedTimes.filter(t => t !== time)
-    }));
-  };
-
-  // Função para obter o dia da semana de uma data
-  const getDayOfWeek = (dateString: string): string => {
-    const days = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
-    // Garantir que a data seja interpretada no fuso horário local
-    const [year, month, day] = dateString.split('-').map(Number);
-    const date = new Date(year, month - 1, day); // month é 0-indexed
-    return days[date.getDay()];
+    setFormData((prev) => {
+      const d = prev.date;
+      if (!d) return prev;
+      const cur = prev.selectionsByDate[d] ?? [];
+      const nextTimes = checked
+        ? [...cur, time]
+        : cur.filter((t) => t !== time);
+      return {
+        ...prev,
+        selectionsByDate: {
+          ...prev.selectionsByDate,
+          [d]: nextTimes,
+        },
+      };
+    });
   };
 
   const getDayOfWeekByDate = (date: Date): string => {
@@ -161,16 +325,21 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
   const isDateSelectable = (date: Date): boolean => {
     const normalizedDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const dayKey = getDayOfWeekByDate(normalizedDate);
-    return normalizedDate >= todayStart && availableDaysSet.has(dayKey);
+    if (normalizedDate < todayStart || !availableDaysSet.has(dayKey)) {
+      return false;
+    }
+    if (anchorWeekdayKey != null && dayKey !== anchorWeekdayKey) {
+      return false;
+    }
+    return true;
   };
 
   const selectDate = (date: Date) => {
     if (!isDateSelectable(date)) return;
     const isoDate = formatDateToIso(date);
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       date: isoDate,
-      selectedTimes: []
     }));
     calculateAvailableTimeSlots(isoDate);
   };
@@ -202,62 +371,20 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
     return days;
   };
 
-  // Função para gerar slots de tempo entre dois horários
-  const generateTimeSlots = (startTime: string, endTime: string): string[] => {
-    const slots: string[] = [];
-    const start = new Date(`2000-01-01T${startTime}`);
-    const end = new Date(`2000-01-01T${endTime}`);
-    
-    const current = new Date(start);
-    while (current <= end) {
-      const timeString = current.toTimeString().slice(0, 5);
-      slots.push(timeString);
-      current.setMinutes(current.getMinutes() + 30);
-    }
-    
-    return slots;
-  };
-
-  // Função para normalizar formato de horário (remove segundos)
-  const normalizeTime = useCallback((time: string): string => {
-    return time.substring(0, 5); // Remove os segundos (ex: "10:30:00" -> "10:30")
-  }, []);
-
-  // Função para verificar se um horário está ocupado (confirmado ou concluído)
-  const isTimeSlotOccupied = useCallback((date: string, time: string): boolean => {
-    return existingAppointments.some(apt => {
-      const dateMatch = apt.date === date;
-      const timeMatch = normalizeTime(apt.time) === time; // Normalizar horário do banco
-      const statusMatch = apt.status === 'pending' || apt.status === 'confirmed' || apt.status === 'completed';
-      
-      return dateMatch && timeMatch && statusMatch;
-    });
-  }, [existingAppointments, normalizeTime]);
-
-  // Função para calcular horários disponíveis baseado na data selecionada
   const calculateAvailableTimeSlots = useCallback((selectedDate: string) => {
     if (!selectedDate) {
       setAvailableTimeSlots([]);
       return;
     }
 
-    const dayOfWeek = getDayOfWeek(selectedDate);
-    const dayAvailability = clinicAvailability.find(av => av.day === dayOfWeek);
-    
-    if (!dayAvailability) {
-      setAvailableTimeSlots([]);
-      return;
-    }
-
-    const timeSlots = generateTimeSlots(dayAvailability.startTime, dayAvailability.endTime);
-    const formattedSlots = timeSlots.map(time => ({
-      value: time,
-      label: time,
-      disabled: isTimeSlotOccupied(selectedDate, time)
-    }));
-    
-    setAvailableTimeSlots(formattedSlots);
-  }, [clinicAvailability, isTimeSlotOccupied]);
+    setAvailableTimeSlots(
+      buildConsultorioHourlySlots(
+        selectedDate,
+        clinicAvailability,
+        existingAppointments,
+      ),
+    );
+  }, [clinicAvailability, existingAppointments]);
 
   useEffect(() => {
     if (formData.date) {
@@ -315,8 +442,16 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
                 }
 
                 const isoDate = formatDateToIso(date);
+                const dayKey = getDayOfWeekByDate(date);
                 const selected = formData.date === isoDate;
+                const hasPicksForDay =
+                  (formData.selectionsByDate[isoDate]?.length ?? 0) > 0;
                 const selectable = isDateSelectable(date);
+                const sameWeekdayOpen =
+                  anchorWeekdayKey != null &&
+                  dayKey === anchorWeekdayKey &&
+                  selectable &&
+                  !selected;
 
                 return (
                   <button
@@ -325,11 +460,15 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
                     onClick={() => selectDate(date)}
                     disabled={!selectable}
                     className={`h-10 rounded-lg text-sm font-medium transition-colors ${
-                      selected
-                        ? 'bg-[#2b9af3] text-white'
-                        : selectable
-                          ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      !selectable
+                        ? 'cursor-not-allowed bg-gray-100 text-gray-400'
+                        : selected
+                          ? 'bg-[#2b9af3] text-white'
+                          : hasPicksForDay
+                            ? 'bg-blue-100 text-blue-900 ring-2 ring-blue-500'
+                            : sameWeekdayOpen
+                              ? 'bg-sky-50 text-sky-900 ring-2 ring-sky-400 hover:bg-sky-100'
+                              : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
                     }`}
                   >
                     {date.getDate()}
@@ -337,36 +476,60 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
                 );
               })}
             </div>
+            {hasAnySlotSelection && anchorWeekdayKey ? (
+              <p className="mt-2 text-xs text-gray-600">
+                Com horários escolhidos, use apenas o mesmo dia da semana em outras
+                datas para repetir o agendamento; o valor total soma o calculado em
+                cada data (hora, turno ou diária).
+              </p>
+            ) : null}
           </div>
         </div>
 
         {/* Seleção de horários */}
         {formData.date && availableTimeSlots.length > 0 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Horários Disponíveis
+            <label className="mb-3 block text-sm font-medium text-gray-700">
+              {`Horários disponíveis (${availableTimeSlots.filter((slot) => !slot.disabled).length})`}
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-4">
-              {availableTimeSlots.map((slot) => (
-                <div key={slot.value} className="relative">
-                  {slot.disabled ? (
-                    <div className="h-full border border-gray-200 rounded-lg bg-gray-100 text-gray-500 p-3 flex items-center">
-                      <span className="text-sm font-medium leading-none whitespace-nowrap">
-                        {slot.label} - Ocupado
-                      </span>
+            <div className="rounded-lg border border-gray-200 bg-gray-50/60">
+              <div
+                className="max-h-80 min-h-56 overflow-y-auto overscroll-y-contain p-4 [scrollbar-gutter:stable]"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {availableTimeSlots.map((slot) => (
+                    <div key={slot.value} className="relative">
+                      {slot.disabled ? (
+                        <div
+                          className="flex h-full cursor-not-allowed items-center rounded-lg border-2 border-red-300 bg-red-50 p-3 text-red-800"
+                          aria-disabled
+                        >
+                          <span className="text-sm font-medium leading-snug line-through">
+                            {slot.label}
+                          </span>
+                        </div>
+                      ) : (
+                        <Checkbox
+                          label={slot.label}
+                          checked={activeSelectedTimes.includes(slot.value)}
+                          onChange={(checked) =>
+                            handleTimeSelection(slot.value, checked)
+                          }
+                          value={slot.value}
+                          disabled={slot.disabled}
+                        />
+                      )}
                     </div>
-                  ) : (
-                    <Checkbox
-                      label={slot.label}
-                      checked={formData.selectedTimes.includes(slot.value)}
-                      onChange={(checked) => handleTimeSelection(slot.value, checked)}
-                      value={slot.value}
-                      disabled={slot.disabled}
-                    />
-                  )}
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
+            {availableTimeSlots.length > 6 && (
+              <p className="mt-2 text-xs text-gray-500">
+                Role a lista para ver todos os horários do dia.
+              </p>
+            )}
           </div>
         )}
 
@@ -397,26 +560,140 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
         )}
 
         {/* Totalizador */}
-        {formData.selectedTimes.length > 0 && (
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="flex justify-between items-center">
+        {hasAnySlotSelection && aggregateQuote && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600">Quantidade de sessões</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {formData.selectedTimes.length} {formData.selectedTimes.length === 1 ? 'sessão' : 'sessões'}
-                </p>
+                {bookingQuote ? (
+                  <>
+                    {bookingQuote.diariaLead && bookingQuote.tailAfterDiaria ? (
+                      <>
+                        <p className="text-sm text-gray-600">Resumo</p>
+                        <p className="text-lg font-semibold text-gray-900">
+                          {bookingQuote.diariaLead.count}{' '}
+                          {bookingQuote.diariaLead.count === 1 ? 'diária' : 'diárias'}{' '}
+                          (10 h) +{' '}
+                          {bookingQuote.tailAfterDiaria.mix ? (
+                            <>
+                              {bookingQuote.tailAfterDiaria.mix.shiftTurnos}{' '}
+                              {bookingQuote.tailAfterDiaria.mix.shiftTurnos === 1
+                                ? 'turno'
+                                : 'turnos'}{' '}
+                              (4 h) +{' '}
+                              {bookingQuote.tailAfterDiaria.mix.remainderHours}{' '}
+                              {bookingQuote.tailAfterDiaria.mix.remainderHours === 1
+                                ? 'horário'
+                                : 'horários'}
+                            </>
+                          ) : bookingQuote.tailAfterDiaria.billingUnit === 'shift' ? (
+                            <>
+                              {bookingQuote.tailAfterDiaria.billableCount}{' '}
+                              {bookingQuote.tailAfterDiaria.billableCount === 1
+                                ? 'turno'
+                                : 'turnos'}{' '}
+                              (4 h)
+                            </>
+                          ) : (
+                            <>
+                              {bookingQuote.tailAfterDiaria.billableCount}{' '}
+                              {bookingQuote.tailAfterDiaria.billableCount === 1
+                                ? 'horário'
+                                : 'horários'}
+                            </>
+                          )}
+                        </p>
+                      </>
+                    ) : bookingQuote.mix ? (
+                      <>
+                        <p className="text-sm text-gray-600">Resumo</p>
+                        <p className="text-lg font-semibold text-gray-900">
+                          {bookingQuote.mix.shiftTurnos}{' '}
+                          {bookingQuote.mix.shiftTurnos === 1 ? 'turno' : 'turnos'} (4 h) +{' '}
+                          {bookingQuote.mix.remainderHours}{' '}
+                          {bookingQuote.mix.remainderHours === 1
+                            ? 'horário'
+                            : 'horários'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-600">
+                          {aggregateQuote.weekCount > 1
+                            ? 'Total no mesmo dia da semana'
+                            : billingCopy.quantityHeading}
+                        </p>
+                        <p className="text-lg font-semibold text-gray-900">
+                          {aggregateQuote.weekCount > 1 &&
+                          bookingQuote.billingUnit === 'day' &&
+                          !bookingQuote.diariaLead &&
+                          !bookingQuote.mix
+                            ? `${bookingQuote.billableCount} ${
+                                bookingQuote.billableCount === 1
+                                  ? 'diária'
+                                  : 'diárias'
+                              } (10 h)`
+                            : aggregateQuote.weekCount > 1
+                              ? `${aggregateQuote.weekCount} datas`
+                              : `${bookingQuote.billableCount} ${
+                                  bookingQuote.billableCount === 1
+                                    ? billingCopy.quantityOne
+                                    : billingCopy.quantityMany
+                                }`}
+                        </p>
+                      </>
+                    )}
+                  </>
+                ) : null}
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600">Valor Total</p>
                 <p className="text-2xl font-bold text-green-600">
-                  R$ {(clinicPrice * formData.selectedTimes.length).toFixed(2).replace('.', ',')}
+                  R$ {formatPriceBrl(aggregateQuote.total)}
                 </p>
               </div>
             </div>
-            <div className="mt-2 pt-2 border-t border-gray-200">
-              <p className="text-xs text-gray-500">
-                R$ {clinicPrice.toFixed(2).replace('.', ',')} por sessão × {formData.selectedTimes.length} sessões
-              </p>
+            <div className="mt-2 space-y-1 border-t border-gray-200 pt-2">
+              {bookingQuote && aggregateQuote.showDetailFooter ? (
+                <>
+                  {bookingQuote.diariaLead && bookingQuote.tailAfterDiaria ? (
+                    <>
+                      <p className="text-xs text-gray-500">
+                        R$ {formatPriceBrl(bookingQuote.diariaLead.unitPrice)} por diária
+                        (10 h) × {bookingQuote.diariaLead.count}{' '}
+                        {bookingQuote.diariaLead.count === 1 ? 'diária' : 'diárias'}
+                      </p>
+                      {appointmentTailFooterLines(bookingQuote.tailAfterDiaria)}
+                    </>
+                  ) : bookingQuote.mix ? (
+                    <>
+                      <p className="text-xs text-gray-500">
+                        R$ {formatPriceBrl(bookingQuote.mix.shiftUnitPrice)} por turno (4
+                        h) × {bookingQuote.mix.shiftTurnos}{' '}
+                        {bookingQuote.mix.shiftTurnos === 1 ? 'turno' : 'turnos'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        R$ {formatPriceBrl(bookingQuote.mix.hourUnitPrice)} por hora ×{' '}
+                        {bookingQuote.mix.remainderHours}{' '}
+                        {bookingQuote.mix.remainderHours === 1
+                          ? 'horário'
+                          : 'horários'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      {bookingQuote.billingUnit === 'shift'
+                        ? `R$ ${formatPriceBrl(bookingQuote.unitPrice)} por turno (4 h) × ${bookingQuote.billableCount} ${bookingQuote.billableCount === 1 ? 'turno' : 'turnos'}`
+                        : bookingQuote.billingUnit === 'day'
+                          ? `R$ ${formatPriceBrl(bookingQuote.unitPrice)} por diária (10 h) × ${bookingQuote.billableCount} ${bookingQuote.billableCount === 1 ? 'diária' : 'diárias'}`
+                          : `R$ ${formatPriceBrl(bookingQuote.unitPrice)} ${billingCopy.perUnit} × ${bookingQuote.billableCount} ${bookingQuote.billableCount === 1 ? billingCopy.quantityOne : billingCopy.quantityMany}`}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-gray-500">
+                  Soma dos valores calculados em cada data (hora, turno ou diária).
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -445,7 +722,14 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({
         <div className="flex flex-col sm:flex-row gap-3 pt-4">
           <Button
             type="submit"
-            disabled={isSubmitting || !formData.date || formData.selectedTimes.length === 0 || availableTimeSlots.length === 0 || !formData.acceptTerms}
+            disabled={
+              isSubmitting ||
+              !formData.date ||
+              !hasAnySlotSelection ||
+              !aggregateQuote ||
+              availableTimeSlots.length === 0 ||
+              !formData.acceptTerms
+            }
             className="flex-1 order-1 sm:order-1"
           >
             {isSubmitting ? 'Agendando...' : 'Confirmar Agendamento'}

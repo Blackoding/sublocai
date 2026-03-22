@@ -3,9 +3,9 @@ import AdSense from "@/components/AdSense";
 import MightLike from "@/components/MightLike";
 import Link from "next/link";
 import Button from "@/components/Button";
-import { GetServerSideProps } from 'next';
-import { Clinic } from '@/types';
-import { createAnonSupabaseClient } from '@/config/supabase';
+import { GetServerSideProps } from "next";
+import { Clinic } from "@/types";
+import { createAnonSupabaseClient } from "@/config/supabase";
 
 // Usar a interface Clinic centralizada dos tipos
 
@@ -27,12 +27,13 @@ export default function Home({ featuredClinics }: HomeProps) {
       <section className="py-16 bg-gradient-to-r from-[#2b9af3] to-blue-600">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">
-            Pronto para encontrar seu consultório ideal?
+            Pronto para encontrar seu espaço ideal?
           </h2>
           <p className="text-xl text-blue-100 mb-8">
-            Junte-se a milhares de profissionais que já encontraram o espaço perfeito para atender seus pacientes
+            Junte-se a milhares de profissionais que já encontraram o espaço
+            perfeito para atender seus pacientes
           </p>
-          
+
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/sublocar" className="w-full sm:w-auto">
               <Button
@@ -40,17 +41,17 @@ export default function Home({ featuredClinics }: HomeProps) {
                 size="lg"
                 className="w-full bg-white text-[#2b9af3] hover:bg-gray-50 border-white"
               >
-                Buscar Consultórios
+                Buscar espaços
               </Button>
             </Link>
-            
+
             <Link href="/anunciar" className="w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="lg"
                 className="w-full bg-transparent text-white border-white hover:bg-white hover:text-[#2b9af3]"
               >
-                Anunciar Consultório
+                Anunciar espaço
               </Button>
             </Link>
           </div>
@@ -88,9 +89,9 @@ export const getServerSideProps: GetServerSideProps = async () => {
   };
 
   const parseNumber = (value: unknown): number => {
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-      const normalized = value.replace(',', '.');
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const normalized = value.replace(",", ".");
       const parsed = parseFloat(normalized);
       return Number.isFinite(parsed) ? parsed : 0;
     }
@@ -99,17 +100,17 @@ export const getServerSideProps: GetServerSideProps = async () => {
 
   const normalizeStringArray = (value: unknown): string[] => {
     if (!Array.isArray(value)) return [];
-    return value.filter((item): item is string => typeof item === 'string');
+    return value.filter((item): item is string => typeof item === "string");
   };
 
   try {
     const supabase = createAnonSupabaseClient();
 
     const { data } = await supabase
-      .from('clinics')
-      .select('*')
-      .eq('status', 'active')
-      .order('created_at', { ascending: false })
+      .from("clinics")
+      .select("*")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
       .limit(6);
 
     const rows = (data as ClinicRow[] | null) || [];
@@ -133,30 +134,30 @@ export const getServerSideProps: GetServerSideProps = async () => {
         state: row.state,
         zip_code: row.zip_code ?? null,
         price: parseNumber(row.price),
-        specialty: row.specialty || '',
+        specialty: row.specialty || "",
         specialties,
         images,
         features,
         google_maps_url: row.google_maps_url ?? null,
         availability: [],
         hasAppointment:
-          typeof row.hasappointment === 'boolean' ? row.hasappointment : null,
-        status: row.status as Clinic['status'],
+          typeof row.hasappointment === "boolean" ? row.hasappointment : null,
+        status: row.status as Clinic["status"],
         created_at: row.created_at ?? null,
-        updated_at: row.updated_at ?? null
+        updated_at: row.updated_at ?? null,
       } as unknown as Clinic;
     });
 
     return {
       props: {
-        featuredClinics
-      }
+        featuredClinics,
+      },
     };
   } catch {
     return {
       props: {
-        featuredClinics: []
-      }
+        featuredClinics: [],
+      },
     };
   }
 };

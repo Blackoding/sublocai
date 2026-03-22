@@ -1,25 +1,25 @@
-import { useState } from 'react';
-import { useRouter } from 'next/router';
-import Head from 'next/head';
-import { Appointment, AppointmentFilters } from '@/types';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
-import Button from '@/components/Button';
-import Input from '@/components/Input';
-import Select from '@/components/Select';
-import { BackButton } from '@/components/BackButton';
+import { useState } from "react";
+import { useRouter } from "next/router";
+import Head from "next/head";
+import { Appointment, AppointmentFilters } from "@/types";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
+import Select from "@/components/Select";
+import { BackButton } from "@/components/BackButton";
 
 const AppointmentsPage = () => {
   const router = useRouter();
   const { id } = router.query;
-  
+
   // Filtros
   const [filters, setFilters] = useState<AppointmentFilters>({
-    date_from: '',
-    date_to: '',
-    period: 'all',
-    day_of_week: 'all',
-    status: 'all'
+    date_from: "",
+    date_to: "",
+    period: "all",
+    day_of_week: "all",
+    status: "all",
   });
 
   const appointments: Appointment[] = [];
@@ -30,12 +30,12 @@ const AppointmentsPage = () => {
     pending: 0,
     confirmed: 0,
     cancelled: 0,
-    completed: 0
+    completed: 0,
   };
   const loadAppointments = () => {};
   const updateAppointmentStatus = (
     _appointmentId: string,
-    _newStatus: 'pending' | 'confirmed' | 'cancelled' | 'completed'
+    _newStatus: "pending" | "confirmed" | "cancelled" | "completed",
   ): void => {
     return;
   };
@@ -48,46 +48,46 @@ const AppointmentsPage = () => {
   // Limpar filtros
   const clearFilters = () => {
     setFilters({
-      date_from: '',
-      date_to: '',
-      period: 'all',
-      day_of_week: 'all',
-      status: 'all'
+      date_from: "",
+      date_to: "",
+      period: "all",
+      day_of_week: "all",
+      status: "all",
     });
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'confirmed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
-        return 'bg-red-100 text-red-800';
-      case 'completed':
-        return 'bg-blue-100 text-blue-800';
+      case "pending":
+        return "bg-yellow-100 text-yellow-800";
+      case "confirmed":
+        return "bg-green-100 text-green-800";
+      case "cancelled":
+        return "bg-red-100 text-red-800";
+      case "completed":
+        return "bg-blue-100 text-blue-800";
       default:
-        return 'bg-gray-100 text-gray-800';
+        return "bg-gray-100 text-gray-800";
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'pending':
-        return 'Pendente';
-      case 'confirmed':
-        return 'Confirmado';
-      case 'cancelled':
-        return 'Cancelado';
-      case 'completed':
-        return 'Concluído';
+      case "pending":
+        return "Pendente";
+      case "confirmed":
+        return "Confirmado";
+      case "cancelled":
+        return "Cancelado";
+      case "completed":
+        return "Concluído";
       default:
         return status;
     }
   };
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('pt-BR');
+    return new Date(date).toLocaleDateString("pt-BR");
   };
 
   const formatTime = (time: string) => {
@@ -95,7 +95,15 @@ const AppointmentsPage = () => {
   };
 
   const getDayOfWeek = (date: string) => {
-    const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const days = [
+      "Domingo",
+      "Segunda",
+      "Terça",
+      "Quarta",
+      "Quinta",
+      "Sexta",
+      "Sábado",
+    ];
     return days[new Date(date).getDay()];
   };
 
@@ -103,53 +111,68 @@ const AppointmentsPage = () => {
     <>
       <Head>
         <title>Agendamentos - Sublease</title>
-        <meta name="description" content="Gerencie os agendamentos do seu consultório" />
+        <meta
+          name="description"
+          content="Gerencie os agendamentos do seu espaço"
+        />
       </Head>
 
       <div className="min-h-screen bg-gray-50">
         <Header />
-        
+
         <main className="container mx-auto px-4 py-8">
           <div className="max-w-7xl mx-auto">
             {/* Header da página */}
             <div className="mb-8">
               <BackButton />
               <h1 className="text-3xl font-bold text-gray-900 mt-4">
-                Agendamentos do Consultório
+                Agendamentos do espaço
               </h1>
               <p className="text-gray-600 mt-2">
-                Gerencie todos os agendamentos do seu consultório
+                Gerencie todos os agendamentos do seu espaço
               </p>
             </div>
 
             {/* Estatísticas */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {stats.total}
+                </div>
                 <div className="text-sm text-gray-600">Total</div>
               </div>
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+                <div className="text-2xl font-bold text-yellow-600">
+                  {stats.pending}
+                </div>
                 <div className="text-sm text-gray-600">Pendentes</div>
               </div>
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <div className="text-2xl font-bold text-green-600">{stats.confirmed}</div>
+                <div className="text-2xl font-bold text-green-600">
+                  {stats.confirmed}
+                </div>
                 <div className="text-sm text-gray-600">Confirmados</div>
               </div>
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <div className="text-2xl font-bold text-red-600">{stats.cancelled}</div>
+                <div className="text-2xl font-bold text-red-600">
+                  {stats.cancelled}
+                </div>
                 <div className="text-sm text-gray-600">Cancelados</div>
               </div>
               <div className="bg-white p-6 rounded-lg shadow-sm">
-                <div className="text-2xl font-bold text-blue-600">{stats.completed}</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  {stats.completed}
+                </div>
                 <div className="text-sm text-gray-600">Concluídos</div>
               </div>
             </div>
 
             {/* Filtros */}
             <div className="bg-white p-6 rounded-lg shadow-sm mb-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Filtros</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                Filtros
+              </h2>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -158,11 +181,13 @@ const AppointmentsPage = () => {
                   <Input
                     label="Data Inicial"
                     type="date"
-                    value={filters.date_from || ''}
-                    onChange={(value) => setFilters({ ...filters, date_from: value })}
+                    value={filters.date_from || ""}
+                    onChange={(value) =>
+                      setFilters({ ...filters, date_from: value })
+                    }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Data Final
@@ -170,72 +195,104 @@ const AppointmentsPage = () => {
                   <Input
                     label="Data Final"
                     type="date"
-                    value={filters.date_to || ''}
-                    onChange={(value) => setFilters({ ...filters, date_to: value })}
+                    value={filters.date_to || ""}
+                    onChange={(value) =>
+                      setFilters({ ...filters, date_to: value })
+                    }
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Período
                   </label>
                   <Select
                     label="Período"
-                    value={filters.period || 'all'}
-                    onChange={(value) => setFilters({ ...filters, period: value as 'morning' | 'afternoon' | 'evening' | 'all' })}
+                    value={filters.period || "all"}
+                    onChange={(value) =>
+                      setFilters({
+                        ...filters,
+                        period: value as
+                          | "morning"
+                          | "afternoon"
+                          | "evening"
+                          | "all",
+                      })
+                    }
                     options={[
-                      { value: 'all', label: 'Todos' },
-                      { value: 'morning', label: 'Manhã (06:00-12:00)' },
-                      { value: 'afternoon', label: 'Tarde (12:00-18:00)' },
-                      { value: 'evening', label: 'Noite (18:00-23:59)' }
+                      { value: "all", label: "Todos" },
+                      { value: "morning", label: "Manhã (06:00-12:00)" },
+                      { value: "afternoon", label: "Tarde (12:00-18:00)" },
+                      { value: "evening", label: "Noite (18:00-23:59)" },
                     ]}
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Dia da Semana
                   </label>
                   <Select
                     label="Dia da Semana"
-                    value={filters.day_of_week || 'all'}
-                    onChange={(value) => setFilters({ ...filters, day_of_week: value as 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'all' })}
+                    value={filters.day_of_week || "all"}
+                    onChange={(value) =>
+                      setFilters({
+                        ...filters,
+                        day_of_week: value as
+                          | "monday"
+                          | "tuesday"
+                          | "wednesday"
+                          | "thursday"
+                          | "friday"
+                          | "saturday"
+                          | "sunday"
+                          | "all",
+                      })
+                    }
                     options={[
-                      { value: 'all', label: 'Todos' },
-                      { value: 'monday', label: 'Segunda-feira' },
-                      { value: 'tuesday', label: 'Terça-feira' },
-                      { value: 'wednesday', label: 'Quarta-feira' },
-                      { value: 'thursday', label: 'Quinta-feira' },
-                      { value: 'friday', label: 'Sexta-feira' },
-                      { value: 'saturday', label: 'Sábado' },
-                      { value: 'sunday', label: 'Domingo' }
+                      { value: "all", label: "Todos" },
+                      { value: "monday", label: "Segunda-feira" },
+                      { value: "tuesday", label: "Terça-feira" },
+                      { value: "wednesday", label: "Quarta-feira" },
+                      { value: "thursday", label: "Quinta-feira" },
+                      { value: "friday", label: "Sexta-feira" },
+                      { value: "saturday", label: "Sábado" },
+                      { value: "sunday", label: "Domingo" },
                     ]}
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Status
                   </label>
                   <Select
                     label="Status"
-                    value={filters.status || 'all'}
-                    onChange={(value) => setFilters({ ...filters, status: value as 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'all' })}
+                    value={filters.status || "all"}
+                    onChange={(value) =>
+                      setFilters({
+                        ...filters,
+                        status: value as
+                          | "pending"
+                          | "confirmed"
+                          | "cancelled"
+                          | "completed"
+                          | "all",
+                      })
+                    }
                     options={[
-                      { value: 'all', label: 'Todos' },
-                      { value: 'pending', label: 'Pendente' },
-                      { value: 'confirmed', label: 'Confirmado' },
-                      { value: 'cancelled', label: 'Cancelado' },
-                      { value: 'completed', label: 'Concluído' }
+                      { value: "all", label: "Todos" },
+                      { value: "pending", label: "Pendente" },
+                      { value: "confirmed", label: "Confirmado" },
+                      { value: "cancelled", label: "Cancelado" },
+                      { value: "completed", label: "Concluído" },
                     ]}
                   />
                 </div>
               </div>
-              
+
               <div className="flex gap-3 mt-4">
-                <Button onClick={applyFilters}>
-                  Aplicar Filtros
-                </Button>
+                <Button onClick={applyFilters}>Aplicar Filtros</Button>
                 <Button variant="outline" onClick={clearFilters}>
                   Limpar Filtros
                 </Button>
@@ -275,67 +332,89 @@ const AppointmentsPage = () => {
                             <h3 className="text-lg font-medium text-gray-900">
                               Usuário {appointment.user_id}
                             </h3>
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}
+                            >
                               {getStatusText(appointment.status)}
                             </span>
                           </div>
-                          
+
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
                             <div>
-                              <span className="font-medium">Data:</span> {formatDate(appointment.date)} ({getDayOfWeek(appointment.date)})
+                              <span className="font-medium">Data:</span>{" "}
+                              {formatDate(appointment.date)} (
+                              {getDayOfWeek(appointment.date)})
                             </div>
                             <div>
-                              <span className="font-medium">Horário:</span> {formatTime(appointment.time)}
+                              <span className="font-medium">Horário:</span>{" "}
+                              {formatTime(appointment.time)}
                             </div>
                             <div>
-                              <span className="font-medium">Valor:</span> R$ {appointment.value.toFixed(2)}
+                              <span className="font-medium">Valor:</span> R${" "}
+                              {appointment.value.toFixed(2)}
                             </div>
                           </div>
-                          
+
                           {appointment.notes && (
                             <div className="mt-2 text-sm text-gray-600">
-                              <span className="font-medium">Observações:</span> {appointment.notes}
+                              <span className="font-medium">Observações:</span>{" "}
+                              {appointment.notes}
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="mt-4 lg:mt-0 lg:ml-6">
                           <div className="flex flex-wrap gap-2">
-                            {appointment.status === 'pending' && (
+                            {appointment.status === "pending" && (
                               <>
                                 <Button
                                   size="sm"
-                                  onClick={() => updateAppointmentStatus(appointment.id, 'confirmed')}
+                                  onClick={() =>
+                                    updateAppointmentStatus(
+                                      appointment.id,
+                                      "confirmed",
+                                    )
+                                  }
                                 >
                                   Confirmar
                                 </Button>
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => updateAppointmentStatus(appointment.id, 'cancelled')}
+                                  onClick={() =>
+                                    updateAppointmentStatus(
+                                      appointment.id,
+                                      "cancelled",
+                                    )
+                                  }
                                   className="text-red-600 hover:text-red-700 hover:border-red-300"
                                 >
                                   Cancelar
                                 </Button>
                               </>
                             )}
-                            
-                            {appointment.status === 'confirmed' && (
+
+                            {appointment.status === "confirmed" && (
                               <Button
                                 size="sm"
-                                onClick={() => updateAppointmentStatus(appointment.id, 'completed')}
+                                onClick={() =>
+                                  updateAppointmentStatus(
+                                    appointment.id,
+                                    "completed",
+                                  )
+                                }
                               >
                                 Marcar como Concluído
                               </Button>
                             )}
-                            
-                            {appointment.status === 'completed' && (
+
+                            {appointment.status === "completed" && (
                               <span className="text-sm text-gray-500">
                                 Agendamento concluído
                               </span>
                             )}
-                            
-                            {appointment.status === 'cancelled' && (
+
+                            {appointment.status === "cancelled" && (
                               <span className="text-sm text-gray-500">
                                 Agendamento cancelado
                               </span>
